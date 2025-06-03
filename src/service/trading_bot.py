@@ -2,8 +2,8 @@ import ccxt  # For synchronous historical data fetch
 import ccxt.pro  # For asynchronous WebSocket connections
 
 from config.logger_config import log
+from config.env_config import TRADE_AMOUNT, BRICK_COUNT
 from .renko_calculator import RenkoCalculator
-from config.env_config import TRADE_AMOUNT
 
 
 class TradingBot:
@@ -49,49 +49,44 @@ class TradingBot:
         if len(self.confirmed_bricks_history) < 3:
             return  # Not enough bricks to form a pattern
 
-        last_three_bricks = self.confirmed_bricks_history[-3:]
-        directions = [b["direction"] for b in last_three_bricks]
+        last_bricks = self.confirmed_bricks_history[-BRICK_COUNT:]
+        directions = [b["direction"] for b in last_bricks]
 
-        # Check for 3 consecutive green (up) bricks
+        # Check for consecutive green (up) bricks
         if all(d == "up" for d in directions):
             if self.position != "long":
-                log.info(
-                    "[Bot] Signal: 3 consecutive GREEN Renko bricks. Attempting to open LONG."
-                )
+                log.info(f"[Bot] Signal: Attempting to open LONG.")
                 if self.position == "short":
                     await self._execute_order(
                         "close_short"
                     )  # Close existing short first
                 await self._execute_order("long")
             else:
-                log.info(
-                    "[Bot] Signal: 3 consecutive GREEN Renko bricks. Already LONG."
-                )
+                log.info("[Bot] Signal: Already LONG.")
 
-        # Check for 3 consecutive red (down) bricks
+        # Check for consecutive red (down) bricks
         elif all(d == "down" for d in directions):
             if self.position != "short":
-                log.info(
-                    "[Bot] Signal: 3 consecutive RED Renko bricks. Attempting to open SHORT."
-                )
+                log.info("[Bot] Signal: Attempting to open SHORT.")
                 if self.position == "long":
                     await self._execute_order("close_long")  # Close existing long first
                 await self._execute_order("short")
             else:
-                log.info("[Bot] Signal: 3 consecutive RED Renko bricks. Already SHORT.")
+                log.info("[Bot] Signal: Already SHORT.")
 
         # Simple exit logic: If current position is long and a red brick appears, or vice versa
         # This is very basic; a real bot would have stop-loss, take-profit, etc.
-        if self.position == "long" and directions[-1] == "down":
-            log.info(
-                "[Bot] Exit Signal: Red brick after being LONG. Attempting to close LONG."
-            )
-            await self._execute_order("close_long")
-        elif self.position == "short" and directions[-1] == "up":
-            log.info(
-                "[Bot] Exit Signal: Green brick after being SHORT. Attempting to close SHORT."
-            )
-            await self._execute_order("close_short")
+        if BRICK_COUNT > 1:
+            if self.position == "long" and directions[-1] == "down":
+                log.info(
+                    "[Bot] Exit Signal: Red brick after being LONG. Attempting to close LONG."
+                )
+                await self._execute_order("close_long")
+            elif self.position == "short" and directions[-1] == "up":
+                log.info(
+                    "[Bot] Exit Signal: Green brick after being SHORT. Attempting to close SHORT."
+                )
+                await self._execute_order("close_short")
 
     async def _execute_order(self, order_type: str):
         """
@@ -105,7 +100,7 @@ class TradingBot:
                 order = await self.exchange.create_market_buy_order(self.symbol, amount)
                 self.position = "long"
                 self.open_price = order["price"]  # Use the actual filled price
-                log.info(f"[Order] LONG position opened at: {self.open_price:.4f}")
+                log.info(f"[Order] LONG position opened at: {self.open_price:.6g}")
             elif order_type == "short":
                 log.info(f"[Order] Placing SELL order for {amount} {self.symbol}...")
                 order = await self.exchange.create_market_sell_order(
@@ -113,7 +108,7 @@ class TradingBot:
                 )
                 self.position = "short"
                 self.open_price = order["price"]  # Use the actual filled price
-                log.info(f"[Order] SHORT position opened at: {self.open_price:.4f}")
+                log.info(f"[Order] SHORT position opened at: {self.open_price:.6g}")
             elif order_type == "close_long":
                 if self.position == "long":
                     log.info(
@@ -123,7 +118,7 @@ class TradingBot:
                         self.symbol, amount
                     )
                     pnl = order["price"] - self.open_price if self.open_price else 0
-                    log.info(f"[Order] LONG position closed. PnL: {pnl:.4f}")
+                    log.info(f"[Order] LONG position closed. PnL: {pnl:.6g}")
                     self.position = None
                     self.open_price = None
                 else:
@@ -137,7 +132,7 @@ class TradingBot:
                         self.symbol, amount
                     )
                     pnl = self.open_price - order["price"] if self.open_price else 0
-                    log.info(f"[Order] SHORT position closed. PnL: {pnl:.4f}")
+                    log.info(f"[Order] SHORT position closed. PnL: {pnl:.6g}")
                     self.position = None
                     self.open_price = None
                 else:

@@ -1,4 +1,5 @@
 import numpy as np
+import talib
 from config.logger_config import log
 
 
@@ -42,37 +43,25 @@ class RenkoCalculator:
         self._calculate_atr()
 
     def _calculate_atr(self):
-        """
-        Calculates the Average True Range (ATR) based on the OHLCV history.
-        """
-        if (
-            len(self.ohlcv_history) < self.atr_period + 1
-        ):  # Need at least ATR_PERIOD + 1 bars for initial TR
+        if len(self.ohlcv_history) < self.atr_period + 1:
             self.current_atr = None
             self.brick_size = None
             return
 
-        true_ranges = []
-        # Iterate from the second bar to calculate True Range
-        for i in range(1, len(self.ohlcv_history)):
-            high_curr = self.ohlcv_history[i][2]
-            low_curr = self.ohlcv_history[i][3]
-            close_prev = self.ohlcv_history[i - 1][4]
+        highs = [bar[2] for bar in self.ohlcv_history]
+        lows = [bar[3] for bar in self.ohlcv_history]
+        closes = [bar[4] for bar in self.ohlcv_history]
 
-            tr1 = high_curr - low_curr
-            tr2 = abs(high_curr - close_prev)
-            tr3 = abs(low_curr - close_prev)
-            true_ranges.append(max(tr1, tr2, tr3))
+        atr_values = talib.ATR(
+            high=np.array(highs),
+            low=np.array(lows),
+            close=np.array(closes),
+            timeperiod=self.atr_period,
+        )
 
-        # Calculate ATR as the simple moving average of True Ranges
-        if len(true_ranges) >= self.atr_period:
-            self.current_atr = np.mean(true_ranges[-self.atr_period :])
-            # Set brick size directly to ATR. You might want to multiply by a factor (e.g., 0.5)
-            # to get smaller bricks, or round it for cleaner price levels.
-            self.brick_size = self.current_atr * 2
-            log.info(
-                f"[Renko] Updated ATR: {self.current_atr:.4f}, Calculated Brick Size: {self.brick_size:.4f}"
-            )
+        if atr_values[-1] is not None:
+            self.current_atr = atr_values[-1]
+            self.brick_size = self.current_atr
         else:
             self.current_atr = None
             self.brick_size = None
@@ -93,7 +82,7 @@ class RenkoCalculator:
                 round(current_price / self.brick_size) * self.brick_size
             )
             log.info(
-                f"[Renko] Initialized last_renko_close: {self.last_renko_close:.4f}"
+                f"[Renko] Initialized last_renko_close: {self.last_renko_close:.6g}"
             )
             return []  # No brick formed yet on initialization
 
@@ -132,7 +121,7 @@ class RenkoCalculator:
                 )
 
                 log.info(
-                    f"[Renko] Formed new brick: {new_brick['direction']} from {new_brick['open']:.2f} to {new_brick['close']:.2f}"
+                    f"[Renko] Formed new brick {new_brick['direction']}: {new_brick['open']:.6g} -> {new_brick['close']:.6g}"
                 )
 
         return newly_formed_bricks
