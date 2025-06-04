@@ -6,7 +6,7 @@ from config.env_config import TRADE_AMOUNT, BRICK_COUNT
 from .renko_calculator import RenkoCalculator
 
 
-class TradingBot:
+class OrderHandler:
     """
     Manages trading strategy based on Renko bricks and executes orders.
     """

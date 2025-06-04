@@ -5,7 +5,7 @@ from datetime import datetime
 from config.logger_config import log
 from service.ohlcv_loader import OHLCVLoader
 from service.renko_calculator import RenkoCalculator
-from service.trading_bot import TradingBot
+from service.order_handler import OrderHandler
 from config.exchange_config import get_exchange_authenticated, get_exchange_public
 from config.env_config import (
     API_KEY,
@@ -55,7 +55,7 @@ async def main():
     )
 
     # 5. Initialize Trading Bot with the authenticated exchange
-    trading_bot = TradingBot(exchange_authenticated, SYMBOL, renko_calc)
+    order_handler = OrderHandler(exchange_authenticated, SYMBOL, renko_calc)
 
     # 6. Start WebSocket data stream and process prices using the authenticated exchange
     log.info(f"[Data Stream] Starting WebSocket stream for {SYMBOL} trades...")
@@ -74,7 +74,7 @@ async def main():
 
                 # If new bricks are formed, pass them to the trading bot
                 if new_bricks:
-                    await trading_bot.process_renko_bricks(new_bricks)
+                    await order_handler.process_renko_bricks(new_bricks)
 
             await asyncio.sleep(0.01)  # Small delay to prevent busy-waiting
         except Exception as e:

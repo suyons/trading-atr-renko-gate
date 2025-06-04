@@ -27,10 +27,10 @@ An automated trading bot that utilizes Renko charts with ATR-based brick sizing 
 │   ├── main.py            # Entry point
 │   ├── config/
 │   │   ├── env_config.py
-│   │   └── logger_config.py
+│   │   └── ...
 │   └── service/
 │       ├── renko_calculator.py
-│       └── trading_bot.py
+│       └── ...
 └── ...
 ```
 
