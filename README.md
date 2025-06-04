@@ -72,7 +72,13 @@ TRADE_AMOUNT=1
 ### 4. Run the main script
 
 ```sh
-python main.py
+python src/main.py
+```
+
+Or you can run it through watchdog for automatic reloading on changes:
+
+```sh
+watchmedo auto-restart --patterns="*.py" --recursive -- python src/main.py
 ```
 
 ## Disclaimer
