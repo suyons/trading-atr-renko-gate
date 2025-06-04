@@ -39,7 +39,7 @@ An automated trading bot that utilizes Renko charts with ATR-based brick sizing 
 ### 1. Clone the repository
 
 ```sh
-git clone https://github.com/yourusername/trading-strategy-atr-renko
+git clone https://github.com/suyons/trading-strategy-atr-renko
 cd trading-strategy-atr-renko
 ```
 
@@ -78,7 +78,7 @@ python src/main.py
 Or you can run it through watchdog for automatic reloading on changes:
 
 ```sh
-watchmedo auto-restart --patterns="*.py" --recursive -- python src/main.py
+run.cmd
 ```
 
 ## Disclaimer
