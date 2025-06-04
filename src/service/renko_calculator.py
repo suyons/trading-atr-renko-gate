@@ -1,5 +1,6 @@
 import numpy as np
 import talib
+
 from config.logger_config import log
 
 
@@ -104,10 +105,19 @@ class RenkoCalculator:
             for _ in range(num_bricks):
                 if direction == "up":
                     brick_open = self.last_renko_close
-                    brick_close = self.last_renko_close + self.brick_size
-                else:  # direction == 'down'
+                    if (
+                        self.renko_bricks
+                        and self.renko_bricks[-1]["direction"] == "down"
+                    ):
+                        brick_close = self.last_renko_close + 2 * self.brick_size
+                    else:
+                        brick_close = self.last_renko_close + self.brick_size
+                else:
                     brick_open = self.last_renko_close
-                    brick_close = self.last_renko_close - self.brick_size
+                    if self.renko_bricks and self.renko_bricks[-1]["direction"] == "up":
+                        brick_close = self.last_renko_close - 2 * self.brick_size
+                    else:
+                        brick_close = self.last_renko_close - self.brick_size
 
                 new_brick = {
                     "open": brick_open,
@@ -116,9 +126,7 @@ class RenkoCalculator:
                 }
                 self.renko_bricks.append(new_brick)
                 newly_formed_bricks.append(new_brick)
-                self.last_renko_close = (
-                    brick_close  # Update for the next potential brick
-                )
+                self.last_renko_close = brick_close
 
                 log.info(
                     f"[Renko] Formed new brick {new_brick['direction']}: {new_brick['open']:.6g} -> {new_brick['close']:.6g}"
