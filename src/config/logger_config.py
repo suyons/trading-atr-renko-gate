@@ -2,13 +2,10 @@ import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
 
-os.makedirs("../logs", exist_ok=True)
-
-
-log_filename = "../logs/%Y-%m-%d.log"
+os.makedirs("logs", exist_ok=True)
 
 file_handler = TimedRotatingFileHandler(
-    filename="../logs/app.log",
+    filename="logs/app.log",
     when="midnight",
     interval=1,
     backupCount=7,
