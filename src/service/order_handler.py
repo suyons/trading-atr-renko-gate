@@ -4,6 +4,7 @@ import ccxt.pro  # For asynchronous WebSocket connections
 from config.logger_config import log
 from config.env_config import TRADE_AMOUNT, BRICK_COUNT
 from .renko_calculator import RenkoCalculator
+from .discord_notifier import DiscordNotifier
 
 
 class OrderHandler:
@@ -16,6 +17,7 @@ class OrderHandler:
         exchange: ccxt.pro.Exchange,
         symbol: str,
         renko_calculator: RenkoCalculator,
+        discord_notifier: DiscordNotifier,
     ):
         self.exchange = exchange
         self.symbol = symbol
@@ -23,6 +25,7 @@ class OrderHandler:
         self.confirmed_bricks_history = []  # Stores recent confirmed Renko bricks
         self.position = None  # 'long', 'short', or None
         self.open_price = None  # Price at which the current position was opened
+        self.discord_notifier = discord_notifier
 
         log.info(f"[Bot] Initialized TradingBot for {self.symbol}")
 
@@ -100,7 +103,9 @@ class OrderHandler:
                 order = await self.exchange.create_market_buy_order(self.symbol, amount)
                 self.position = "long"
                 self.open_price = order["price"]  # Use the actual filled price
-                log.info(f"[Order] LONG position opened at: {self.open_price:.6g}")
+                message = f"[Order] LONG position opened at: {self.open_price:.6g}"
+                log.info(message)
+                self.discord_notifier.push_log_buffer(message)
             elif order_type == "short":
                 log.info(f"[Order] Placing SELL order for {amount} {self.symbol}...")
                 order = await self.exchange.create_market_sell_order(
@@ -108,7 +113,9 @@ class OrderHandler:
                 )
                 self.position = "short"
                 self.open_price = order["price"]  # Use the actual filled price
-                log.info(f"[Order] SHORT position opened at: {self.open_price:.6g}")
+                message = f"[Order] SHORT position opened at: {self.open_price:.6g}"
+                log.info(message)
+                self.discord_notifier.push_log_buffer(message)
             elif order_type == "close_long":
                 if self.position == "long":
                     log.info(
@@ -118,7 +125,9 @@ class OrderHandler:
                         self.symbol, amount
                     )
                     pnl = order["price"] - self.open_price if self.open_price else 0
-                    log.info(f"[Order] LONG position closed. PnL: {pnl:.6g}")
+                    message = f"[Order] LONG position closed. PnL: {pnl:.6g}"
+                    self.discord_notifier.push_log_buffer(message)
+                    log.info(message)
                     self.position = None
                     self.open_price = None
                 else:
@@ -132,13 +141,16 @@ class OrderHandler:
                         self.symbol, amount
                     )
                     pnl = self.open_price - order["price"] if self.open_price else 0
-                    log.info(f"[Order] SHORT position closed. PnL: {pnl:.6g}")
+                    message = f"[Order] SHORT position closed. PnL: {pnl:.6g}"
+                    self.discord_notifier.push_log_buffer(message)
+                    log.info(message)
                     self.position = None
                     self.open_price = None
                 else:
                     log.info("[Order] No active SHORT position to close.")
             else:
                 log.warning(f"[Order] Unknown order type requested: {order_type}")
+            await self.discord_notifier.flush_log_buffer()
 
         except ccxt.NetworkError as e:
             log.error(f"[Order Error] Network error during order execution: {e}")
