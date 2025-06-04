@@ -1,3 +1,5 @@
 ccxt
-python-dotenv
 numpy
+python-dotenv
+talib
+watchdog
