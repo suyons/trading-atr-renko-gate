@@ -1,18 +1,8 @@
 import logging
-import os
-from logging.handlers import TimedRotatingFileHandler
 
-os.makedirs("logs", exist_ok=True)
+from .daily_log_file_handler import DailyLogFileHandler
 
-file_handler = TimedRotatingFileHandler(
-    filename="logs/app.log",
-    when="midnight",
-    interval=1,
-    backupCount=7,
-    encoding="utf-8",
-    utc=False,
-)
-file_handler.suffix = "%Y-%m-%d.log"
+file_handler = DailyLogFileHandler(log_dir="logs")
 file_handler.setFormatter(
     logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 )
