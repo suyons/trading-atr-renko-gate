@@ -26,8 +26,11 @@ async def main():
     log.info("Starting the Real-time ATR Renko Trading Bot...")
 
     # 1. Initialize authenticated & public exchange using exchange_config
-    exchange_authenticated = await get_exchange_authenticated(API_KEY, SECRET_KEY, log)
+    exchange_authenticated = await get_exchange_authenticated(API_KEY, SECRET_KEY)
     if not exchange_authenticated:
+        log.error(
+            "[Init Error] Failed to initialize authenticated exchange. Check API keys and permissions."
+        )
         return
     exchange_public = get_exchange_public()
 

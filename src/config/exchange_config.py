@@ -2,32 +2,31 @@ import asyncio
 import ccxt
 import ccxt.pro
 
+from .logger_config import log
 
-async def get_exchange_authenticated(API_KEY, SECRET_KEY, log):
+
+async def get_exchange_authenticated(API_KEY, SECRET_KEY):
     """
     Create an authenticated ccxt.pro.gate exchange object and test authentication by fetching the balance.
     Returns None if authentication fails.
     """
-    exchange_authenticated = ccxt.pro.gate(
+    exchange_authenticated = ccxt.pro.binance(
         {
             "apiKey": API_KEY,
             "secret": SECRET_KEY,
             "enableRateLimit": True,
             "options": {
-                "defaultType": "swap",
+                "defaultType": "future",  # Use 'spot' for spot trading
             },
         }
     )
+    exchange_authenticated.set_sandbox_mode(True)
 
     try:
         balance = await exchange_authenticated.fetch_balance()
         log.info("[Init] Successfully connected to exchange (authenticated).")
-        # "balance" format may vary by exchange, you can comment the section below or adjust accordingly
-        cross_info = balance.get("info", [{}])[0]
-        cross_available = float(cross_info.get("cross_available", 0))
-        cross_initial_margin = float(cross_info.get("cross_initial_margin", 0))
-        equity = cross_available + cross_initial_margin
-        log.info(f"[Init] Equity: {equity:.2f}")
+        usdt_balance = balance.get("USDT", {}).get("free", 0.0)
+        log.info(f"[Init] USDT Free Balance: {usdt_balance:.2f}")
         return exchange_authenticated
 
     except ccxt.NetworkError as e:
@@ -48,7 +47,7 @@ def get_exchange_public():
     """
     Return a ccxt.gate exchange object for public (unauthenticated) use.
     """
-    exchange_public = ccxt.gate(
+    exchange_public = ccxt.binance(
         {
             "enableRateLimit": True,
         }
