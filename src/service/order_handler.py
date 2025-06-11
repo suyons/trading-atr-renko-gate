@@ -124,8 +124,9 @@ class OrderHandler:
                     order = await self.exchange.create_market_sell_order(
                         self.symbol, amount
                     )
-                    pnl = order["price"] - self.open_price if self.open_price else 0
-                    message = f"[Order] LONG position closed. PnL: {pnl:.6g}"
+                    pnl_price = order["price"] - self.open_price if self.open_price else 0
+                    pnl_amount = amount * pnl_price
+                    message = f"[Order] LONG position closed. PnL: {pnl_amount:.6g}"
                     self.discord_notifier.push_log_buffer(message)
                     log.info(message)
                     self.position = None
@@ -140,8 +141,9 @@ class OrderHandler:
                     order = await self.exchange.create_market_buy_order(
                         self.symbol, amount
                     )
-                    pnl = self.open_price - order["price"] if self.open_price else 0
-                    message = f"[Order] SHORT position closed. PnL: {pnl:.6g}"
+                    pnl_price = self.open_price - order["price"] if self.open_price else 0
+                    pnl_amount = amount * pnl_price
+                    message = f"[Order] SHORT position closed. PnL: {pnl_amount:.6g}"
                     self.discord_notifier.push_log_buffer(message)
                     log.info(message)
                     self.position = None
