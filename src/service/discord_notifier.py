@@ -1,6 +1,7 @@
 import aiohttp
 from config.logger_config import log
 from config.env_config import DISCORD_WEBHOOK_URL
+from datetime import datetime
 
 
 class DiscordNotifier:
@@ -30,7 +31,8 @@ class DiscordNotifier:
         """
         Buffers log messages to be sent later.
         """
-        self._log_buffer += message + "\n"
+        now = datetime.now().strftime("%H:%M:%S")
+        self._log_buffer += f"{now} - {message}\n"
 
     async def flush_log_buffer(self):
         """
