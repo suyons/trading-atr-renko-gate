@@ -89,47 +89,50 @@ class RenkoCalculator:
 
         newly_formed_bricks = []
         price_diff = current_price - self.last_renko_close
-        num_bricks = int(abs(price_diff) / self.brick_size)
+        direction = "up" if price_diff > 0 else "down"
 
-        if num_bricks >= 1:
-            # Determine the direction of the new brick(s)
-            direction = "up" if price_diff > 0 else "down"
-
-            # If the direction changes, we need to reverse the previous brick(s)
-            # This is a common Renko rule: if price reverses, the previous brick is 'erased'
-            # and new bricks are formed in the opposite direction.
-            # For simplicity, this example just forms new bricks. A more advanced Renko
-            # might remove previous bricks if direction changes significantly.
-            # Here, we'll just ensure the new bricks are in the correct direction.
-
-            for _ in range(num_bricks):
-                if direction == "up":
+        while True:
+            diff = current_price - self.last_renko_close
+            if direction == "up":
+                # Same direction: need brick_size, reversal: need 2*brick_size
+                threshold = self.brick_size if (not self.renko_bricks or self.renko_bricks[-1]["direction"] == "up") else 2 * self.brick_size
+                if diff >= threshold:
                     brick_open = self.last_renko_close
-                    if (
-                        self.renko_bricks
-                        and self.renko_bricks[-1]["direction"] == "down"
-                    ):
-                        brick_close = self.last_renko_close + 2 * self.brick_size
-                    else:
-                        brick_close = self.last_renko_close + self.brick_size
+                    brick_close = self.last_renko_close + threshold
+                    new_brick = {
+                        "open": brick_open,
+                        "close": brick_close,
+                        "direction": "up",
+                    }
+                    self.renko_bricks.append(new_brick)
+                    newly_formed_bricks.append(new_brick)
+                    self.last_renko_close = brick_close
+                    log.info(
+                        f"[Renko] Formed new brick up: {brick_open:.6g} -> {brick_close:.6g}"
+                    )
+                    # For the next brick, threshold=brick_size
+                    direction = "up"
                 else:
+                    break
+            else:
+                # Same direction: need brick_size, reversal: need 2*brick_size
+                threshold = self.brick_size if (not self.renko_bricks or self.renko_bricks[-1]["direction"] == "down") else 2 * self.brick_size
+                if diff <= -threshold:
                     brick_open = self.last_renko_close
-                    if self.renko_bricks and self.renko_bricks[-1]["direction"] == "up":
-                        brick_close = self.last_renko_close - 2 * self.brick_size
-                    else:
-                        brick_close = self.last_renko_close - self.brick_size
-
-                new_brick = {
-                    "open": brick_open,
-                    "close": brick_close,
-                    "direction": direction,
-                }
-                self.renko_bricks.append(new_brick)
-                newly_formed_bricks.append(new_brick)
-                self.last_renko_close = brick_close
-
-                log.info(
-                    f"[Renko] Formed new brick {new_brick['direction']}: {new_brick['open']:.6g} -> {new_brick['close']:.6g}"
-                )
+                    brick_close = self.last_renko_close - threshold
+                    new_brick = {
+                        "open": brick_open,
+                        "close": brick_close,
+                        "direction": "down",
+                    }
+                    self.renko_bricks.append(new_brick)
+                    newly_formed_bricks.append(new_brick)
+                    self.last_renko_close = brick_close
+                    log.info(
+                        f"[Renko] Formed new brick down: {brick_open:.6g} -> {brick_close:.6g}"
+                    )
+                    direction = "down"
+                else:
+                    break
 
         return newly_formed_bricks
