@@ -64,6 +64,9 @@ async def main():
         exchange_authenticated, SYMBOL, renko_calc, discord_notifier
     )
 
+    await order_handler.set_initial_position_and_price()
+    await order_handler.close_all_positions()
+
     # 6. Start WebSocket data stream and process prices using the authenticated exchange
     log.info(f"[Data Stream] Starting WebSocket stream for {SYMBOL} trades...")
     while True:
@@ -73,8 +76,10 @@ async def main():
             for trade in trades:
                 # 'price' is the most important for Renko calculation
                 current_price = trade["price"]
-                # Uncomment for verbose trade data
-                # log.info(f"[Data] New trade price: {current_price}")
+                # Verbose logging for new trade prices
+                # if not hasattr(main, "prev_price") or current_price != main.prev_price:
+                #     log.info(f"[Data] New trade price: {current_price}")
+                # main.prev_price = current_price
 
                 # Feed the new price to the Renko calculator
                 new_bricks = renko_calc.process_new_price(current_price)

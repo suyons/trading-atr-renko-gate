@@ -25,9 +25,9 @@ class OrderHandler:
         self.confirmed_bricks_history = []  # Stores recent confirmed Renko bricks
         self.position = None  # 'long', 'short', or None
         self.open_price = None  # Price at which the current position was opened
+        self.trade_amount = None
         self.discord_notifier = discord_notifier
-
-        log.info(f"[Bot] Initialized TradingBot for {self.symbol}")
+        log.info(f"[Bot] Initialized OrderHandler for {self.symbol}")
 
     async def process_renko_bricks(self, new_bricks: list):
         """
@@ -79,17 +79,17 @@ class OrderHandler:
 
         # Simple exit logic: If current position is long and a red brick appears, or vice versa
         # This is very basic; a real bot would have stop-loss, take-profit, etc.
-        if BRICK_COUNT > 1:
-            if self.position == "long" and directions[-1] == "down":
-                log.info(
-                    "[Bot] Exit Signal: Red brick after being LONG. Attempting to close LONG."
-                )
-                await self._execute_order("close_long")
-            elif self.position == "short" and directions[-1] == "up":
-                log.info(
-                    "[Bot] Exit Signal: Green brick after being SHORT. Attempting to close SHORT."
-                )
-                await self._execute_order("close_short")
+        # if BRICK_COUNT > 1:
+        #     if self.position == "long" and directions[-1] == "down":
+        #         log.info(
+        #             "[Bot] Exit Signal: Red brick after being LONG. Attempting to close LONG."
+        #         )
+        #         await self._execute_order("close_long")
+        #     elif self.position == "short" and directions[-1] == "up":
+        #         log.info(
+        #             "[Bot] Exit Signal: Green brick after being SHORT. Attempting to close SHORT."
+        #         )
+        #         await self._execute_order("close_short")
 
     async def _execute_order(self, order_type: str):
         """
@@ -124,7 +124,9 @@ class OrderHandler:
                     order = await self.exchange.create_market_sell_order(
                         self.symbol, amount
                     )
-                    pnl_price = order["price"] - self.open_price if self.open_price else 0
+                    pnl_price = (
+                        order["price"] - self.open_price if self.open_price else 0
+                    )
                     pnl_amount = amount * pnl_price
                     message = f"[Order] LONG position closed. PnL: {pnl_amount:.6g}"
                     self.discord_notifier.push_log_buffer(message)
@@ -141,7 +143,9 @@ class OrderHandler:
                     order = await self.exchange.create_market_buy_order(
                         self.symbol, amount
                     )
-                    pnl_price = self.open_price - order["price"] if self.open_price else 0
+                    pnl_price = (
+                        self.open_price - order["price"] if self.open_price else 0
+                    )
                     pnl_amount = amount * pnl_price
                     message = f"[Order] SHORT position closed. PnL: {pnl_amount:.6g}"
                     self.discord_notifier.push_log_buffer(message)
@@ -162,3 +166,42 @@ class OrderHandler:
             log.error(
                 f"[Order Error] An unexpected error occurred during order execution: {e}"
             )
+
+    async def close_all_positions(self):
+        """
+        Closes any open position (long or short) at market price.
+        """
+        if self.position == "long":
+            log.info("[Order] Closing all: Detected open LONG position. Closing...")
+            await self._execute_order("close_long")
+        elif self.position == "short":
+            log.info("[Order] Closing all: Detected open SHORT position. Closing...")
+            await self._execute_order("close_short")
+        else:
+            log.info("[Order] No open positions to close.")
+
+    async def set_initial_position_and_price(self):
+        """
+        Sets the initial position and open price from the exchange if possible.
+        """
+        try:
+            positions = await self.exchange.fetch_positions([self.symbol])
+            if not positions:
+                log.info("[Init] No open positions found on exchange.")
+                return
+            for pos in positions:
+                # Check if the symbol matches the configured SYMBOL exactly
+                if (
+                    pos.get("symbol") == self.symbol
+                    and abs(pos.get("contracts", 0)) > 0
+                ):
+                    contracts = pos.get("contracts", 0)
+                    self.position = pos.get("side")  # Use the 'side' field directly from the position dict
+                    self.open_price = pos.get("entryPrice")
+                    self.trade_amount = abs(contracts)
+                    log.info(
+                        f"[Init] Previous position: {self.position}, entry price: {self.open_price}, amount: {self.trade_amount}"
+                    )
+                    break
+        except Exception as e:
+            log.warning(f"[Init] Could not fetch current position from exchange: {e}")
