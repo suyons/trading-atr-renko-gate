@@ -25,8 +25,8 @@ async def get_exchange_authenticated(API_KEY, SECRET_KEY):
     try:
         balance = await exchange_authenticated.fetch_balance()
         log.info("[Init] Successfully connected to exchange (authenticated).")
-        usdt_balance = balance.get("USDT", {}).get("free", 0.0)
-        log.info(f"[Init] USDT Free Balance: {usdt_balance:.2f}")
+        total_wallet_balance = float(balance.get("info", {}).get("totalWalletBalance", 0.0))
+        log.info(f"[Init] Total Wallet Balance: {total_wallet_balance:.2f}")
         return exchange_authenticated
 
     except ccxt.NetworkError as e:
