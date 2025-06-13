@@ -35,7 +35,7 @@ async def main():
     exchange_public = get_exchange_public()
 
     # 2. Initialize Renko Calculator
-    renko_calc = RenkoCalculator(atr_period=ATR_PERIOD)
+    renko_calculator = RenkoCalculator(atr_period=ATR_PERIOD)
 
     # 3. Fetch initial historical OHLCV data using the public exchange instance
     log.info(
@@ -53,17 +53,21 @@ async def main():
 
     # 4. Add historical OHLCV data to the Renko calculator
     for bar in all_ohlcv_historical:
-        renko_calc.add_ohlcv_data(bar)
+        renko_calculator.add_ohlcv_data(bar)
     log.info(
-        f"[Init] Loaded {len(all_ohlcv_historical)} historical OHLCV bars for Renko ATR calculation. Brick size: {renko_calc.brick_size:.4g}"
+        f"[Init] Loaded {len(all_ohlcv_historical)} historical OHLCV bars for Renko ATR calculation. Brick size: {renko_calculator.brick_size:.4g}"
     )
+
+    renko_calculator.set_historical_bricks()
+    
 
     # 5. Initialize Trading Bot with the authenticated exchange
     discord_notifier = DiscordNotifier()
     order_handler = OrderHandler(
-        exchange_authenticated, SYMBOL, renko_calc, discord_notifier
+        exchange_authenticated, SYMBOL, renko_calculator, discord_notifier
     )
 
+    await renko_calculator.send_renko_plot_to_discord(discord_notifier)
     await order_handler.set_initial_position_and_price()
     await order_handler.close_all_positions()
 
@@ -82,7 +86,7 @@ async def main():
                 # main.prev_price = current_price
 
                 # Feed the new price to the Renko calculator
-                new_bricks = renko_calc.process_new_price(current_price)
+                new_bricks = renko_calculator.process_new_price(current_price)
 
                 # If new bricks are formed, pass them to the trading bot
                 if new_bricks:

@@ -22,7 +22,6 @@ class OrderHandler:
         self.exchange = exchange
         self.symbol = symbol
         self.renko_calculator = renko_calculator
-        self.confirmed_bricks_history = []  # Stores recent confirmed Renko bricks
         self.current_position_side = None  # 'long', 'short', or None
         self.current_position_opened_price = None
         self.current_position_size = None
@@ -38,21 +37,20 @@ class OrderHandler:
             return
 
         for brick in new_bricks:
-            self.confirmed_bricks_history.append(brick)
+            self.renko_calculator.renko_bricks.append(brick)
             # Keep only the last few bricks relevant for the strategy (e.g., 3 + some buffer)
-            if len(self.confirmed_bricks_history) > 5:
-                self.confirmed_bricks_history.pop(0)  # Remove the oldest brick
-
+            if len(self.renko_calculator.renko_bricks) > 100:
+                self.renko_calculator.renko_bricks.pop(0)  # Remove the oldest brick
             await self._check_and_trade()
 
     async def _check_and_trade(self):
         """
         Checks the last 3 confirmed Renko bricks for trading signals and executes trades.
         """
-        if len(self.confirmed_bricks_history) < 3:
+        if len(self.renko_calculator.renko_bricks) < 3:
             return  # Not enough bricks to form a pattern
 
-        last_bricks = self.confirmed_bricks_history[-BRICK_COUNT:]
+        last_bricks = self.renko_calculator.renko_bricks[-BRICK_COUNT:]
         directions = [b["direction"] for b in last_bricks]
 
         # Check for consecutive green (up) bricks
@@ -98,6 +96,7 @@ class OrderHandler:
         amount = TRADE_AMOUNT  # Use the configured trade amount
 
         try:
+            await self.renko_calculator.send_renko_plot_to_discord(self.discord_notifier)
             if order_type == "long":
                 log.info(f"[Order] Placing BUY order for {amount} {self.symbol}...")
                 order = await self.exchange.create_market_buy_order(self.symbol, amount)
@@ -128,9 +127,14 @@ class OrderHandler:
                         order["price"] - self.current_position_opened_price if self.current_position_opened_price else 0
                     )
                     pnl_amount = amount * pnl_price
-                    message = f"[Order] LONG position closed. PnL: {pnl_amount:.6g}"
-                    self.discord_notifier.push_log_buffer(message)
+                    balance = await self.exchange.fetch_balance()
+                    total_wallet_balance = float(balance.get("info", {}).get("totalWalletBalance", 0.0))
+                    message = "[Order] LONG position closed."
                     log.info(message)
+                    self.discord_notifier.push_log_buffer(message)
+                    message = f"[Order] PnL: {pnl_amount:.6g}, Balance: {total_wallet_balance:.2f}"
+                    log.info(message)
+                    self.discord_notifier.push_log_buffer(message)
                     self.current_position_side = None
                     self.current_position_opened_price = None
                 else:
@@ -147,9 +151,14 @@ class OrderHandler:
                         self.current_position_opened_price - order["price"] if self.current_position_opened_price else 0
                     )
                     pnl_amount = amount * pnl_price
-                    message = f"[Order] SHORT position closed. PnL: {pnl_amount:.6g}"
-                    self.discord_notifier.push_log_buffer(message)
+                    balance = await self.exchange.fetch_balance()
+                    total_wallet_balance = float(balance.get("info", {}).get("totalWalletBalance", 0.0))
+                    message = "[Order] SHORT position closed."
                     log.info(message)
+                    self.discord_notifier.push_log_buffer(message)
+                    message = f"[Order] PnL: {pnl_amount:.6g}, Balance: {total_wallet_balance:.2f}"
+                    log.info(message)
+                    self.discord_notifier.push_log_buffer(message)
                     self.current_position_side = None
                     self.current_position_opened_price = None
                 else:

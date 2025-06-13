@@ -1,7 +1,12 @@
+import io
+
+import matplotlib.pyplot as plt
 import numpy as np
 import talib
 
 from config.logger_config import log
+from config.env_config import (SYMBOL, OHLCV_TIMEFRAME, ATR_PERIOD)
+import aiohttp
 
 
 class RenkoCalculator:
@@ -38,7 +43,7 @@ class RenkoCalculator:
 
         self.ohlcv_history.append(ohlcv_bar)
         # Keep history size manageable, but ensure enough for ATR calculation
-        if len(self.ohlcv_history) > self.atr_period * 2:
+        if len(self.ohlcv_history) > 1000:
             self.ohlcv_history.pop(0)  # Remove oldest bar
 
         self._calculate_atr()
@@ -89,16 +94,29 @@ class RenkoCalculator:
 
         newly_formed_bricks = []
         price_diff = current_price - self.last_renko_close
-        direction = "up" if price_diff > 0 else "down"
+        if price_diff > 0:
+            direction = "up"
+        elif price_diff < 0:
+            direction = "down"
+        else:
+            return []  # No price change, no brick formed
 
-        while True:
-            diff = current_price - self.last_renko_close
-            if direction == "up":
-                # Same direction: need brick_size, reversal: need 2*brick_size
-                threshold = self.brick_size if (not self.renko_bricks or self.renko_bricks[-1]["direction"] == "up") else 2 * self.brick_size
-                if diff >= threshold:
+        if direction == "up":
+            last_dir = self.renko_bricks[-1]["direction"] if self.renko_bricks else "up"
+            threshold = self.brick_size if last_dir == "up" else 2 * self.brick_size
+            if price_diff >= threshold:
+                first_brick_size = threshold
+                remaining_diff = price_diff - first_brick_size
+                num_additional_bricks = (
+                    int(remaining_diff // self.brick_size) if remaining_diff >= 0 else 0
+                )
+                total_bricks = 1 + num_additional_bricks
+
+                for i in range(total_bricks):
                     brick_open = self.last_renko_close
-                    brick_close = self.last_renko_close + threshold
+                    brick_close = brick_open + (
+                        first_brick_size if i == 0 else self.brick_size
+                    )
                     new_brick = {
                         "open": brick_open,
                         "close": brick_close,
@@ -107,19 +125,26 @@ class RenkoCalculator:
                     self.renko_bricks.append(new_brick)
                     newly_formed_bricks.append(new_brick)
                     self.last_renko_close = brick_close
-                    log.info(
-                        f"[Renko] Formed new brick up: {brick_open:.6g} -> {brick_close:.6g}"
-                    )
-                    # For the next brick, threshold=brick_size
-                    direction = "up"
-                else:
-                    break
-            else:
-                # Same direction: need brick_size, reversal: need 2*brick_size
-                threshold = self.brick_size if (not self.renko_bricks or self.renko_bricks[-1]["direction"] == "down") else 2 * self.brick_size
-                if diff <= -threshold:
+                direction = "up"
+
+        elif direction == "down":
+            last_dir = (
+                self.renko_bricks[-1]["direction"] if self.renko_bricks else "down"
+            )
+            threshold = self.brick_size if last_dir == "down" else 2 * self.brick_size
+            if price_diff <= -threshold:
+                first_brick_size = threshold
+                remaining_diff = -price_diff - first_brick_size
+                num_additional_bricks = (
+                    int(remaining_diff // self.brick_size) if remaining_diff >= 0 else 0
+                )
+                total_bricks = 1 + num_additional_bricks
+
+                for i in range(total_bricks):
                     brick_open = self.last_renko_close
-                    brick_close = self.last_renko_close - threshold
+                    brick_close = brick_open - (
+                        first_brick_size if i == 0 else self.brick_size
+                    )
                     new_brick = {
                         "open": brick_open,
                         "close": brick_close,
@@ -128,11 +153,83 @@ class RenkoCalculator:
                     self.renko_bricks.append(new_brick)
                     newly_formed_bricks.append(new_brick)
                     self.last_renko_close = brick_close
-                    log.info(
-                        f"[Renko] Formed new brick down: {brick_open:.6g} -> {brick_close:.6g}"
-                    )
-                    direction = "down"
-                else:
-                    break
+                direction = "down"
 
         return newly_formed_bricks
+
+    def set_historical_bricks(self):
+        """
+        Rebuilds the renko_bricks list from ohlcv_history using the calculated ATR (brick size).
+        This is useful for initializing the Renko structure from existing OHLCV data.
+        """
+        if not self.ohlcv_history or self.brick_size is None:
+            log.warning(
+                "[Renko] Cannot set historical bricks: missing OHLCV or ATR/brick size."
+            )
+            return
+
+        self.renko_bricks = []
+        self.last_renko_close = None
+
+        for bar in self.ohlcv_history:
+            current_price = bar[4]
+            self.process_new_price(current_price)
+
+    async def send_renko_plot_to_discord(self, notifier, message=""):
+        """
+        Plots the historical Renko bricks and sends the image to Discord using the provided DiscordNotifier.
+        """
+        if not self.renko_bricks:
+            log.warning("[Renko] No Renko bricks to plot.")
+            return None
+
+        opens = [brick["open"] for brick in self.renko_bricks]
+        closes = [brick["close"] for brick in self.renko_bricks]
+        directions = [brick["direction"] for brick in self.renko_bricks]
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        fig.patch.set_facecolor("black")
+        ax.set_facecolor("black")
+        for i, (open_price, close_price, direction) in enumerate(
+            zip(opens, closes, directions)
+        ):
+            color = "green" if direction == "up" else "red"
+            ax.plot([i, i], [open_price, close_price], color=color, linewidth=2)
+
+        ax.set_title(f"{SYMBOL}, {OHLCV_TIMEFRAME} Renko ({ATR_PERIOD})", color="white")
+        ax.set_xlabel("Brick Index", color="white")
+        ax.set_ylabel("Price", color="white")
+        ax.tick_params(axis="x", colors="white")
+        ax.tick_params(axis="y", colors="white")
+        ax.spines["bottom"].set_color("white")
+        ax.spines["top"].set_color("white")
+        ax.spines["left"].set_color("white")
+        ax.spines["right"].set_color("white")
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="jpg", facecolor=fig.get_facecolor())
+        plt.close(fig)
+        buf.seek(0)
+
+        if notifier and notifier.webhook_url:
+            try:
+                data = aiohttp.FormData()
+                data.add_field(
+                    "file", buf, filename="renko.jpg", content_type="image/jpeg"
+                )
+                data.add_field("content", message)
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(notifier.webhook_url, data=data) as resp:
+                        if resp.status == 200:
+                            log.info("[Discord] Renko plot sent successfully.")
+                        else:
+                            log.error(
+                                f"[Discord] Failed to send plot. Status: {resp.status}"
+                            )
+                        return resp
+            except Exception as e:
+                log.error(f"[Discord Error] An error occurred: {e}")
+                return None
+        else:
+            log.warning("[Discord] No webhook URL configured.")
+            return buf
