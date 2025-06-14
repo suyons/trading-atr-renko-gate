@@ -31,6 +31,7 @@ class DiscordNotifier:
         """
         Buffers log messages to be sent later.
         """
+        log.info(message)
         now = datetime.now().strftime("%H:%M:%S")
         self._log_buffer += f"{now} - {message}\n"
 

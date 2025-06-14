@@ -23,7 +23,7 @@ log_filename = datetime.now().strftime("../logs/%Y-%m-%d.log")
 
 
 async def main():
-    log.info("Starting the Real-time ATR Renko Trading Bot...")
+    log.info("[Init] Starting the Real-time ATR Renko Trading Bot...")
 
     # 1. Initialize authenticated & public exchange using exchange_config
     exchange_authenticated = await get_exchange_authenticated(API_KEY, SECRET_KEY)
@@ -59,20 +59,32 @@ async def main():
     )
 
     renko_calculator.set_historical_bricks()
-    
+    balance = await exchange_authenticated.fetch_balance()
+    total_wallet_balance = float(balance.get("info", {}).get("totalWalletBalance", 0.0))
 
     # 5. Initialize Trading Bot with the authenticated exchange
     discord_notifier = DiscordNotifier()
     order_handler = OrderHandler(
-        exchange_authenticated, SYMBOL, renko_calculator, discord_notifier
+        exchange_authenticated,
+        SYMBOL,
+        renko_calculator,
+        discord_notifier,
+        total_wallet_balance,
     )
 
     await renko_calculator.send_renko_plot_to_discord(discord_notifier)
+    discord_notifier.push_log_buffer(
+        f"[Init] Renko trading bot initialized for {SYMBOL}, {OHLCV_TIMEFRAME}"
+    )
+    discord_notifier.push_log_buffer(
+        f"[Renko] Renko bricks count: {len(renko_calculator.renko_bricks)}, brick size: {renko_calculator.brick_size:.4g}, last close: {renko_calculator.last_renko_close:.6g}"
+    )
+    await discord_notifier.flush_log_buffer()
     await order_handler.set_initial_position_and_price()
     await order_handler.close_all_positions()
 
     # 6. Start WebSocket data stream and process prices using the authenticated exchange
-    log.info(f"[Data Stream] Starting WebSocket stream for {SYMBOL} trades...")
+    log.info(f"[Websocket] Starting WebSocket stream for {SYMBOL} trades...")
     while True:
         try:
             # watch_trades provides individual trade data, which is most granular for Renko
@@ -95,7 +107,7 @@ async def main():
             await asyncio.sleep(0.01)  # Small delay to prevent busy-waiting
         except Exception as e:
             log.error(
-                f"[Data Stream Error] An unexpected error occurred: {e}. Retrying in 5 seconds..."
+                f"[Websocket Error] An unexpected error occurred: {e}. Retrying in 5 seconds..."
             )
             await asyncio.sleep(5)
         finally:

@@ -5,7 +5,7 @@ import numpy as np
 import talib
 
 from config.logger_config import log
-from config.env_config import (SYMBOL, OHLCV_TIMEFRAME, ATR_PERIOD)
+from config.env_config import SYMBOL, OHLCV_TIMEFRAME, ATR_PERIOD
 import aiohttp
 
 
@@ -26,10 +26,6 @@ class RenkoCalculator:
         )  # Stores confirmed Renko bricks: {'open': float, 'close': float, 'direction': 'up'/'down'}
         self.last_renko_close = (
             None  # The closing price of the last confirmed Renko brick
-        )
-
-        log.info(
-            f"[Renko] Initialized RenkoCalculator with ATR period: {self.atr_period}"
         )
 
     def add_ohlcv_data(self, ohlcv_bar: list):
@@ -154,6 +150,9 @@ class RenkoCalculator:
                     newly_formed_bricks.append(new_brick)
                     self.last_renko_close = brick_close
                 direction = "down"
+
+        while len(self.renko_bricks) > 100:
+            self.renko_bricks.pop(0)  # Remove the oldest brick
 
         return newly_formed_bricks
 

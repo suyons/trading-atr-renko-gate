@@ -18,6 +18,7 @@ class OrderHandler:
         symbol: str,
         renko_calculator: RenkoCalculator,
         discord_notifier: DiscordNotifier,
+        last_balance: float = 0.0,
     ):
         self.exchange = exchange
         self.symbol = symbol
@@ -26,6 +27,7 @@ class OrderHandler:
         self.current_position_opened_price = None
         self.current_position_size = None
         self.discord_notifier = discord_notifier
+        self.last_balance = last_balance
         log.info(f"[Bot] Initialized OrderHandler for {self.symbol}")
 
     async def process_renko_bricks(self, new_bricks: list):
@@ -37,10 +39,6 @@ class OrderHandler:
             return
 
         for brick in new_bricks:
-            self.renko_calculator.renko_bricks.append(brick)
-            # Keep only the last few bricks relevant for the strategy (e.g., 3 + some buffer)
-            if len(self.renko_calculator.renko_bricks) > 100:
-                self.renko_calculator.renko_bricks.pop(0)  # Remove the oldest brick
             await self._check_and_trade()
 
     async def _check_and_trade(self):
@@ -56,7 +54,13 @@ class OrderHandler:
         # Check for consecutive green (up) bricks
         if all(d == "up" for d in directions):
             if self.current_position_side != "long":
-                log.info(f"[Bot] Signal: Attempting to open LONG.")
+                await self.renko_calculator.send_renko_plot_to_discord(
+                    self.discord_notifier
+                )
+                self.discord_notifier.push_log_buffer(
+                    f"[Renko] Renko bricks count: {len(self.renko_calculator.renko_bricks)}, brick size: {self.renko_calculator.brick_size:.4g}, last close: {self.renko_calculator.last_renko_close:.6g}"
+                )
+                await self.discord_notifier.flush_log_buffer()
                 if self.current_position_side == "short":
                     await self._execute_order(
                         "close_short"
@@ -68,72 +72,60 @@ class OrderHandler:
         # Check for consecutive red (down) bricks
         elif all(d == "down" for d in directions):
             if self.current_position_side != "short":
-                log.info("[Bot] Signal: Attempting to open SHORT.")
+                await self.renko_calculator.send_renko_plot_to_discord(
+                    self.discord_notifier
+                )
+                self.discord_notifier.push_log_buffer(
+                    f"[Renko] Renko bricks count: {len(self.renko_calculator.renko_bricks)}, brick size: {self.renko_calculator.brick_size:.4g}, last close: {self.renko_calculator.last_renko_close:.6g}"
+                )
+                await self.discord_notifier.flush_log_buffer()
                 if self.current_position_side == "long":
                     await self._execute_order("close_long")  # Close existing long first
                 await self._execute_order("short")
             else:
                 log.info("[Bot] Signal: Already SHORT.")
 
-        # Simple exit logic: If current position is long and a red brick appears, or vice versa
-        # This is very basic; a real bot would have stop-loss, take-profit, etc.
-        # if BRICK_COUNT > 1:
-        #     if self.position == "long" and directions[-1] == "down":
-        #         log.info(
-        #             "[Bot] Exit Signal: Red brick after being LONG. Attempting to close LONG."
-        #         )
-        #         await self._execute_order("close_long")
-        #     elif self.position == "short" and directions[-1] == "up":
-        #         log.info(
-        #             "[Bot] Exit Signal: Green brick after being SHORT. Attempting to close SHORT."
-        #         )
-        #         await self._execute_order("close_short")
-
     async def _execute_order(self, order_type: str):
         """
         Executes a market order based on the specified order type.
         """
-        amount = TRADE_AMOUNT  # Use the configured trade amount
 
         try:
-            await self.renko_calculator.send_renko_plot_to_discord(self.discord_notifier)
             if order_type == "long":
-                log.info(f"[Order] Placing BUY order for {amount} {self.symbol}...")
-                order = await self.exchange.create_market_buy_order(self.symbol, amount)
+                order = await self.exchange.create_market_buy_order(
+                    self.symbol, TRADE_AMOUNT
+                )
                 self.current_position_side = "long"
-                self.current_position_opened_price = order["price"]  # Use the actual filled price
-                message = f"[Order] LONG position opened at: {self.current_position_opened_price:.6g}"
-                log.info(message)
+                self.current_position_opened_price = order[
+                    "price"
+                ]  # Use the actual filled price
+                message = f"[Order] Open LONG {TRADE_AMOUNT} {self.symbol} at {self.current_position_opened_price:.6g}."
                 self.discord_notifier.push_log_buffer(message)
             elif order_type == "short":
-                log.info(f"[Order] Placing SELL order for {amount} {self.symbol}...")
                 order = await self.exchange.create_market_sell_order(
-                    self.symbol, amount
+                    self.symbol, TRADE_AMOUNT
                 )
                 self.current_position_side = "short"
-                self.current_position_opened_price = order["price"]  # Use the actual filled price
-                message = f"[Order] SHORT position opened at: {self.current_position_opened_price:.6g}"
-                log.info(message)
+                self.current_position_opened_price = order[
+                    "price"
+                ]  # Use the actual filled price
+                message = f"[Order] Open SHORT {TRADE_AMOUNT} {self.symbol} at {self.current_position_opened_price:.6g}."
                 self.discord_notifier.push_log_buffer(message)
             elif order_type == "close_long":
                 if self.current_position_side == "long":
-                    log.info(
-                        f"[Order] Closing LONG position by selling {amount} {self.symbol}..."
-                    )
                     order = await self.exchange.create_market_sell_order(
-                        self.symbol, amount
+                        self.symbol, TRADE_AMOUNT, params={"reduceOnly": True}
                     )
-                    pnl_price = (
-                        order["price"] - self.current_position_opened_price if self.current_position_opened_price else 0
-                    )
-                    pnl_amount = amount * pnl_price
                     balance = await self.exchange.fetch_balance()
-                    total_wallet_balance = float(balance.get("info", {}).get("totalWalletBalance", 0.0))
-                    message = "[Order] LONG position closed."
-                    log.info(message)
+                    total_wallet_balance = float(
+                        balance.get("info", {}).get("totalWalletBalance", 0.0)
+                    )
+                    pnl = total_wallet_balance - self.last_balance
+                    self.last_balance = total_wallet_balance
+                    close_price = order["price"]
+                    message = f"[Order] Close LONG {TRADE_AMOUNT} {self.symbol} at {close_price:.6g}."
                     self.discord_notifier.push_log_buffer(message)
-                    message = f"[Order] PnL: {pnl_amount:.6g}, Balance: {total_wallet_balance:.2f}"
-                    log.info(message)
+                    message = f"[Order] PnL: {pnl:.2f}, Balance: {total_wallet_balance:.2f}"
                     self.discord_notifier.push_log_buffer(message)
                     self.current_position_side = None
                     self.current_position_opened_price = None
@@ -141,23 +133,21 @@ class OrderHandler:
                     log.info("[Order] No active LONG position to close.")
             elif order_type == "close_short":
                 if self.current_position_side == "short":
-                    log.info(
-                        f"[Order] Closing SHORT position by buying {amount} {self.symbol}..."
-                    )
                     order = await self.exchange.create_market_buy_order(
-                        self.symbol, amount
+                        self.symbol, TRADE_AMOUNT, params={"reduceOnly": True}
                     )
-                    pnl_price = (
-                        self.current_position_opened_price - order["price"] if self.current_position_opened_price else 0
-                    )
-                    pnl_amount = amount * pnl_price
                     balance = await self.exchange.fetch_balance()
-                    total_wallet_balance = float(balance.get("info", {}).get("totalWalletBalance", 0.0))
-                    message = "[Order] SHORT position closed."
-                    log.info(message)
+                    total_wallet_balance = float(
+                        balance.get("info", {}).get("totalWalletBalance", 0.0)
+                    )
+                    pnl = total_wallet_balance - self.last_balance
+                    self.last_balance = total_wallet_balance
+                    close_price = order["price"]
+                    message = (
+                        f"[Order] Close SHORT {TRADE_AMOUNT} {self.symbol} at {close_price:.6g}."
+                    )
                     self.discord_notifier.push_log_buffer(message)
-                    message = f"[Order] PnL: {pnl_amount:.6g}, Balance: {total_wallet_balance:.2f}"
-                    log.info(message)
+                    message = f"[Order] PnL: {pnl:.2f}, Balance: {total_wallet_balance:.2f}"
                     self.discord_notifier.push_log_buffer(message)
                     self.current_position_side = None
                     self.current_position_opened_price = None
@@ -205,7 +195,9 @@ class OrderHandler:
                     and abs(pos.get("contracts", 0)) > 0
                 ):
                     contracts = pos.get("contracts", 0)
-                    self.current_position_side = pos.get("side")  # Use the 'side' field directly from the position dict
+                    self.current_position_side = pos.get(
+                        "side"
+                    )  # Use the 'side' field directly from the position dict
                     self.current_position_opened_price = pos.get("entryPrice")
                     self.current_position_size = abs(contracts)
                     log.info(
