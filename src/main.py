@@ -1,6 +1,4 @@
-import os
 import asyncio
-from datetime import datetime
 
 from config.logger_config import log
 from service.ohlcv_loader import OHLCVLoader
@@ -16,10 +14,6 @@ from config.env_config import (
     ATR_PERIOD,
     INITIAL_OHLCV_LIMIT,
 )
-
-# Logging configuration
-os.makedirs("../logs", exist_ok=True)
-log_filename = datetime.now().strftime("../logs/%Y-%m-%d.log")
 
 
 async def main():
@@ -89,20 +83,14 @@ async def main():
         try:
             # watch_trades provides individual trade data, which is most granular for Renko
             trades = await exchange_authenticated.watch_trades(SYMBOL)
-            for trade in trades:
-                # 'price' is the most important for Renko calculation
-                current_price = trade["price"]
-                # Verbose logging for new trade prices
-                # if not hasattr(main, "prev_price") or current_price != main.prev_price:
-                #     log.info(f"[Data] New trade price: {current_price}")
-                # main.prev_price = current_price
+
+            if trades:
+                # Use only the most recent trade's price
+                current_price = trades[-1]["price"]
 
                 # Feed the new price to the Renko calculator
                 new_bricks = renko_calculator.process_new_price(current_price)
-
-                # If new bricks are formed, pass them to the trading bot
-                if new_bricks:
-                    await order_handler.process_renko_bricks(new_bricks)
+                await order_handler.process_renko_bricks(new_bricks)
 
             await asyncio.sleep(0.01)  # Small delay to prevent busy-waiting
         except Exception as e:
@@ -110,9 +98,6 @@ async def main():
                 f"[Websocket Error] An unexpected error occurred: {e}. Retrying in 5 seconds..."
             )
             await asyncio.sleep(5)
-        finally:
-            # Ensure connection is closed on exit or error
-            pass  # await exchange_authenticated.close() # This might close prematurely if in a loop
 
 
 # --- Run the bot ---
