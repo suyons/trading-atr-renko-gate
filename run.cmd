@@ -1,1 +1,0 @@
-watchmedo auto-restart --patterns="*.py;.env" --recursive -- python src/main.py

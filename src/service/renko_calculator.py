@@ -1,12 +1,16 @@
+import os
 import io
 
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
 import talib
+import requests
 
 from config.logger_config import log
-from config.env_config import SYMBOL, OHLCV_TIMEFRAME, ATR_PERIOD
-import aiohttp
+
+SYMBOL = os.getenv("SYMBOL")
+OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
+ATR_PERIOD = os.getenv("ATR_PERIOD")
 
 
 class RenkoCalculator:
@@ -14,56 +18,64 @@ class RenkoCalculator:
     Calculates and generates Renko bricks based on incoming price data and ATR.
     """
 
-    def __init__(self, atr_period: int):
-        self.atr_period = atr_period
-        self.ohlcv_history = (
-            []
-        )  # Stores OHLCV bars for ATR calculation: [timestamp, open, high, low, close, volume]
+    def __init__(self):
         self.current_atr = None
         self.brick_size = None
-        self.renko_bricks = (
-            []
-        )  # Stores confirmed Renko bricks: {'open': float, 'close': float, 'direction': 'up'/'down'}
-        self.last_renko_close = (
-            None  # The closing price of the last confirmed Renko brick
-        )
+        self.last_renko_close = None
+        self.ohlcv_history = []
+        self.renko_bricks = []
 
-    def add_ohlcv_data(self, ohlcv_bar: list):
+    def set_ohlcv_history(self, ohlcv_history: list):
         """
-        Adds a new OHLCV bar to the history and recalculates ATR.
-        This is crucial for keeping the ATR (and thus brick size) updated.
+        Adds new OHLCV bars (list of dicts) to the history and recalculates ATR.
+        Each ohlcv_bar should be a dict with keys: 'o', 'h', 'l', 'c', 'v', 't', 'sum'.
         """
-        if len(ohlcv_bar) != 6:
-            (f"[Renko] Warning: Invalid OHLCV bar format received: {ohlcv_bar}")
-            return
+        required_keys = {"o", "h", "l", "c", "v", "t"}
+        for ohlcv_bar in ohlcv_history:
+            if not isinstance(ohlcv_bar, dict) or not required_keys.issubset(ohlcv_bar):
+                log.warning(
+                    f"[Renko] Warning: Invalid OHLCV bar format received: {ohlcv_bar}"
+                )
+                continue
 
-        self.ohlcv_history.append(ohlcv_bar)
-        # Keep history size manageable, but ensure enough for ATR calculation
-        if len(self.ohlcv_history) > 1000:
-            self.ohlcv_history.pop(0)  # Remove oldest bar
+            try:
+                bar = [
+                    float(ohlcv_bar["o"]),
+                    float(ohlcv_bar["h"]),
+                    float(ohlcv_bar["l"]),
+                    float(ohlcv_bar["c"]),
+                    float(ohlcv_bar["v"]),
+                    int(ohlcv_bar["t"]),
+                ]
+            except Exception as e:
+                log.warning(f"[Renko] Error parsing OHLCV bar: {ohlcv_bar} ({e})")
+                continue
 
-        self._calculate_atr()
+            self.ohlcv_history.append(bar)
+            # Keep history size manageable, but ensure enough for ATR calculation
+            if len(self.ohlcv_history) > 1000:
+                self.ohlcv_history.pop(0)  # Remove oldest bar
 
-    def _calculate_atr(self):
-        if len(self.ohlcv_history) < self.atr_period + 1:
+    def calculate_atr(self):
+        if len(self.ohlcv_history) < int(ATR_PERIOD) + 1:
             self.current_atr = None
             self.brick_size = None
             return
 
-        highs = [bar[2] for bar in self.ohlcv_history]
-        lows = [bar[3] for bar in self.ohlcv_history]
-        closes = [bar[4] for bar in self.ohlcv_history]
+        highs = [bar[1] for bar in self.ohlcv_history]
+        lows = [bar[2] for bar in self.ohlcv_history]
+        closes = [bar[3] for bar in self.ohlcv_history]
 
         atr_values = talib.ATR(
-            high=np.array(highs),
-            low=np.array(lows),
-            close=np.array(closes),
-            timeperiod=self.atr_period,
+            high=np.array(highs, dtype=np.float64),
+            low=np.array(lows, dtype=np.float64),
+            close=np.array(closes, dtype=np.float64),
+            timeperiod=int(ATR_PERIOD),
         )
 
-        if atr_values[-1] is not None:
+        if atr_values[-1] is not None and not np.isnan(atr_values[-1]):
             self.current_atr = atr_values[-1]
-            self.brick_size = self.current_atr
+            self.brick_size = float(self.current_atr)
         else:
             self.current_atr = None
             self.brick_size = None
@@ -98,8 +110,12 @@ class RenkoCalculator:
             return []  # No price change, no brick formed
 
         if direction == "up":
-            last_brick_direction = self.renko_bricks[-1]["direction"] if self.renko_bricks else "up"
-            threshold_brick_size = self.brick_size if last_brick_direction == "up" else 2 * self.brick_size
+            last_brick_direction = (
+                self.renko_bricks[-1]["direction"] if self.renko_bricks else "up"
+            )
+            threshold_brick_size = (
+                self.brick_size if last_brick_direction == "up" else 2 * self.brick_size
+            )
             if price_diff >= threshold_brick_size:
                 remaining_diff = price_diff - threshold_brick_size
                 count_additional_bricks = (
@@ -125,7 +141,11 @@ class RenkoCalculator:
             last_brick_direction = (
                 self.renko_bricks[-1]["direction"] if self.renko_bricks else "down"
             )
-            threshold_brick_size = self.brick_size if last_brick_direction == "down" else 2 * self.brick_size
+            threshold_brick_size = (
+                self.brick_size
+                if last_brick_direction == "down"
+                else 2 * self.brick_size
+            )
             if price_diff <= -threshold_brick_size:
                 remaining_diff = -price_diff - threshold_brick_size
                 count_additional_bricks = (
@@ -170,7 +190,7 @@ class RenkoCalculator:
             current_price = bar[4]
             self.process_new_price(current_price)
 
-    async def send_renko_plot_to_discord(self, notifier, message=""):
+    def send_renko_plot_to_discord(self, notifier, message=""):
         """
         Plots the historical Renko bricks and sends the image to Discord using the provided DiscordNotifier.
         """
@@ -208,20 +228,16 @@ class RenkoCalculator:
 
         if notifier and notifier.webhook_url:
             try:
-                data = aiohttp.FormData()
-                data.add_field(
-                    "file", buf, filename="renko.jpg", content_type="image/jpeg"
-                )
-                data.add_field("content", message)
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(notifier.webhook_url, data=data) as resp:
-                        if resp.status == 200:
-                            log.info("[Discord] Renko plot sent successfully.")
-                        else:
-                            log.error(
-                                f"[Discord] Failed to send plot. Status: {resp.status}"
-                            )
-                        return resp
+                data = {"content": message}
+                files = {"file": ("renko.jpg", buf, "image/jpeg")}
+                response = requests.post(notifier.webhook_url, data=data, files=files)
+                if response.status_code == 200:
+                    log.info("[Discord] Renko plot sent successfully.")
+                else:
+                    log.error(
+                        f"[Discord] Failed to send plot. Status: {response.status_code}"
+                    )
+                return response
             except Exception as e:
                 log.error(f"[Discord Error] An error occurred: {e}")
                 return None

@@ -1,6 +1,6 @@
 # ATR Renko Trading Strategy
 
-An automated trading bot that utilizes Renko charts with ATR-based brick sizing to generate trading signals and execute trades on cryptocurrency exchanges via [ccxt](https://github.com/ccxt/ccxt).
+An automated trading bot that utilizes Renko charts with ATR-based brick sizing to generate trading signals and execute trades on gate.
 
 ## Features
 
@@ -26,7 +26,7 @@ An automated trading bot that utilizes Renko charts with ATR-based brick sizing 
 ├── src/
 │   ├── main.py            # Entry point
 │   ├── config/
-│   │   ├── env_config.py
+│   │   ├── logger_config.py
 │   │   └── ...
 │   └── service/
 │       ├── renko_calculator.py
@@ -57,28 +57,12 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-Fill in your API keys and desired parameters:
-
-```
-API_KEY=your_api_key_here
-SECRET_KEY=your_secret_key_here
-SYMBOL=ETH/USDT:USDT
-ATR_PERIOD=14
-OHLCV_TIMEFRAME=1m
-INITIAL_OHLCV_LIMIT=10000
-TRADE_AMOUNT=1
-```
+Fill in your API keys and desired parameters
 
 ### 4. Run the main script
 
 ```sh
 python src/main.py
-```
-
-Or you can run it through watchdog for automatic reloading on changes:
-
-```sh
-run.cmd
 ```
 
 ## Disclaimer
