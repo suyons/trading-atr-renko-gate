@@ -49,10 +49,12 @@ class OrderHandler:
             return  # Not enough bricks to form a pattern
 
         last_bricks = self.renko_calculator.renko_bricks[-BRICK_COUNT:]
-        directions = [b["direction"] for b in last_bricks]
+        directions = [brick["direction"] for brick in last_bricks]
 
         # Check for consecutive green (up) bricks
         if all(d == "up" for d in directions):
+            current_price = self.renko_calculator.last_renko_close
+            log.info(f"[Bot] Current Renko price: {current_price}")
             if self.current_position_side != "long":
                 await self.renko_calculator.send_renko_plot_to_discord(
                     self.discord_notifier
@@ -125,7 +127,9 @@ class OrderHandler:
                     close_price = order["price"]
                     message = f"[Order] Close LONG {TRADE_AMOUNT} {self.symbol} at {close_price:.6g}."
                     self.discord_notifier.push_log_buffer(message)
-                    message = f"[Order] PnL: {pnl:.2f}, Balance: {total_wallet_balance:.2f}"
+                    message = (
+                        f"[Order] PnL: {pnl:.2f}, Balance: {total_wallet_balance:.2f}"
+                    )
                     self.discord_notifier.push_log_buffer(message)
                     self.current_position_side = None
                     self.current_position_opened_price = None
@@ -143,11 +147,11 @@ class OrderHandler:
                     pnl = total_wallet_balance - self.last_balance
                     self.last_balance = total_wallet_balance
                     close_price = order["price"]
-                    message = (
-                        f"[Order] Close SHORT {TRADE_AMOUNT} {self.symbol} at {close_price:.6g}."
-                    )
+                    message = f"[Order] Close SHORT {TRADE_AMOUNT} {self.symbol} at {close_price:.6g}."
                     self.discord_notifier.push_log_buffer(message)
-                    message = f"[Order] PnL: {pnl:.2f}, Balance: {total_wallet_balance:.2f}"
+                    message = (
+                        f"[Order] PnL: {pnl:.2f}, Balance: {total_wallet_balance:.2f}"
+                    )
                     self.discord_notifier.push_log_buffer(message)
                     self.current_position_side = None
                     self.current_position_opened_price = None

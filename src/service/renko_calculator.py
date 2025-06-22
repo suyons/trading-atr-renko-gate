@@ -98,20 +98,18 @@ class RenkoCalculator:
             return []  # No price change, no brick formed
 
         if direction == "up":
-            last_dir = self.renko_bricks[-1]["direction"] if self.renko_bricks else "up"
-            threshold = self.brick_size if last_dir == "up" else 2 * self.brick_size
-            if price_diff >= threshold:
-                first_brick_size = threshold
-                remaining_diff = price_diff - first_brick_size
-                num_additional_bricks = (
+            last_brick_direction = self.renko_bricks[-1]["direction"] if self.renko_bricks else "up"
+            threshold_brick_size = self.brick_size if last_brick_direction == "up" else 2 * self.brick_size
+            if price_diff >= threshold_brick_size:
+                remaining_diff = price_diff - threshold_brick_size
+                count_additional_bricks = (
                     int(remaining_diff // self.brick_size) if remaining_diff >= 0 else 0
                 )
-                total_bricks = 1 + num_additional_bricks
 
-                for i in range(total_bricks):
+                for i in range(count_additional_bricks):
                     brick_open = self.last_renko_close
                     brick_close = brick_open + (
-                        first_brick_size if i == 0 else self.brick_size
+                        threshold_brick_size if i == 0 else self.brick_size
                     )
                     new_brick = {
                         "open": brick_open,
@@ -124,22 +122,20 @@ class RenkoCalculator:
                 direction = "up"
 
         elif direction == "down":
-            last_dir = (
+            last_brick_direction = (
                 self.renko_bricks[-1]["direction"] if self.renko_bricks else "down"
             )
-            threshold = self.brick_size if last_dir == "down" else 2 * self.brick_size
-            if price_diff <= -threshold:
-                first_brick_size = threshold
-                remaining_diff = -price_diff - first_brick_size
-                num_additional_bricks = (
+            threshold_brick_size = self.brick_size if last_brick_direction == "down" else 2 * self.brick_size
+            if price_diff <= -threshold_brick_size:
+                remaining_diff = -price_diff - threshold_brick_size
+                count_additional_bricks = (
                     int(remaining_diff // self.brick_size) if remaining_diff >= 0 else 0
                 )
-                total_bricks = 1 + num_additional_bricks
 
-                for i in range(total_bricks):
+                for i in range(count_additional_bricks):
                     brick_open = self.last_renko_close
                     brick_close = brick_open - (
-                        first_brick_size if i == 0 else self.brick_size
+                        threshold_brick_size if i == 0 else self.brick_size
                     )
                     new_brick = {
                         "open": brick_open,
