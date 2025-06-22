@@ -1,16 +1,11 @@
-import os
 import io
 
 import numpy as np
 import matplotlib.pyplot as plt
 import talib
-import requests
 
 from config.logger_config import log
-
-SYMBOL = os.getenv("SYMBOL")
-OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
-ATR_PERIOD = os.getenv("ATR_PERIOD")
+from service.discord_rest_client import DiscordRestClient
 
 
 class RenkoCalculator:
@@ -18,12 +13,22 @@ class RenkoCalculator:
     Calculates and generates Renko bricks based on incoming price data and ATR.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        symbol: str,
+        ohlcv_timeframe: str,
+        atr_period: int,
+        discord_client: DiscordRestClient,
+    ):
         self.current_atr = None
         self.brick_size = None
         self.last_renko_close = None
         self.ohlcv_history = []
         self.renko_bricks = []
+        self.symbol = symbol
+        self.ohlcv_timeframe = ohlcv_timeframe
+        self.atr_period = atr_period
+        self.discord_client = discord_client
 
     def set_ohlcv_history(self, ohlcv_history: list):
         """
@@ -56,8 +61,8 @@ class RenkoCalculator:
             if len(self.ohlcv_history) > 1000:
                 self.ohlcv_history.pop(0)  # Remove oldest bar
 
-    def calculate_atr(self):
-        if len(self.ohlcv_history) < int(ATR_PERIOD) + 1:
+    def calculate_brick_size(self):
+        if len(self.ohlcv_history) < self.atr_period + 1:
             self.current_atr = None
             self.brick_size = None
             return
@@ -70,7 +75,7 @@ class RenkoCalculator:
             high=np.array(highs, dtype=np.float64),
             low=np.array(lows, dtype=np.float64),
             close=np.array(closes, dtype=np.float64),
-            timeperiod=int(ATR_PERIOD),
+            timeperiod=self.atr_period,
         )
 
         if atr_values[-1] is not None and not np.isnan(atr_values[-1]):
@@ -187,10 +192,10 @@ class RenkoCalculator:
         self.last_renko_close = None
 
         for bar in self.ohlcv_history:
-            current_price = bar[4]
+            current_price = bar[3]
             self.process_new_price(current_price)
 
-    def send_renko_plot_to_discord(self, notifier, message=""):
+    def send_renko_plot_to_discord(self):
         """
         Plots the historical Renko bricks and sends the image to Discord using the provided DiscordNotifier.
         """
@@ -211,7 +216,10 @@ class RenkoCalculator:
             color = "green" if direction == "up" else "red"
             ax.plot([i, i], [open_price, close_price], color=color, linewidth=2)
 
-        ax.set_title(f"{SYMBOL}, {OHLCV_TIMEFRAME} Renko ({ATR_PERIOD})", color="white")
+        ax.set_title(
+            f"{self.symbol}, {self.ohlcv_timeframe} Renko ({self.atr_period})",
+            color="white",
+        )
         ax.set_xlabel("Brick Index", color="white")
         ax.set_ylabel("Price", color="white")
         ax.tick_params(axis="x", colors="white")
@@ -221,26 +229,10 @@ class RenkoCalculator:
         ax.spines["left"].set_color("white")
         ax.spines["right"].set_color("white")
 
-        buf = io.BytesIO()
-        plt.savefig(buf, format="jpg", facecolor=fig.get_facecolor())
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format="jpg", facecolor=fig.get_facecolor())
         plt.close(fig)
-        buf.seek(0)
+        buffer.seek(0)
 
-        if notifier and notifier.webhook_url:
-            try:
-                data = {"content": message}
-                files = {"file": ("renko.jpg", buf, "image/jpeg")}
-                response = requests.post(notifier.webhook_url, data=data, files=files)
-                if response.status_code == 200:
-                    log.info("[Discord] Renko plot sent successfully.")
-                else:
-                    log.error(
-                        f"[Discord] Failed to send plot. Status: {response.status_code}"
-                    )
-                return response
-            except Exception as e:
-                log.error(f"[Discord Error] An error occurred: {e}")
-                return None
-        else:
-            log.warning("[Discord] No webhook URL configured.")
-            return buf
+        self.discord_client.send_image(buffer)
+        buffer.close()

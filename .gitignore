@@ -203,5 +203,7 @@ pyrightconfig.json
 .history
 .ionide
 
+# Windows command files
+*.cmd
 
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,jupyternotebooks

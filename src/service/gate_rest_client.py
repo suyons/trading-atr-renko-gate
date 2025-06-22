@@ -1,11 +1,9 @@
-import os
 import requests
-
-GATE_REST_TEST_URL = os.getenv("GATE_REST_TEST_URL")
 
 
 class GateRestClient:
-    def __init__(self):
+    def __init__(self, url):
+        self.url = url
         self.headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -35,9 +33,7 @@ class GateRestClient:
             - sum (str): Trading volume (unit: Quote currency)
         """
         path = f"/futures/usdt/candlesticks"
-        response = requests.get(
-            GATE_REST_TEST_URL + path, headers=self.headers, params=params
-        )
+        response = requests.get(self.url + path, headers=self.headers, params=params)
         return response.json()
 
 

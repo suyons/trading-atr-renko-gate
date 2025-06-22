@@ -1,27 +1,32 @@
 import hashlib
 import hmac
 import json
-import os
 import time
 import threading
 from websocket import WebSocketApp
 
 from config.logger_config import log
 
-API_KEY = os.getenv("API_KEY")
-SECRET_KEY = os.getenv("SECRET_KEY")
-GATE_WS_TEST_URL = os.getenv("GATE_WS_TEST_URL")
-SYMBOL = os.getenv("SYMBOL")
-
 
 event = threading.Event()
 
 
 class GateWsClient(WebSocketApp):
-    def __init__(self, url, message_handler=None, **kwargs):
+    def __init__(
+        self,
+        url: str,
+        api_key: str,
+        secret_key: str,
+        symbol: str,
+        message_handler=None,
+        **kwargs
+    ):
         super(GateWsClient, self).__init__(
             url, on_message=self._on_message, on_open=self._on_open, **kwargs
         )
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.symbol = symbol
         self.message_handler = message_handler
 
     def _send_ping(self):
@@ -50,7 +55,7 @@ class GateWsClient(WebSocketApp):
             message = "channel=%s&event=%s&time=%d" % (channel, event, current_time)
             data["auth"] = {
                 "method": "api_key",
-                "KEY": API_KEY,
+                "KEY": self.api_key,
                 "SIGN": self.get_sign(message),
             }
         data = json.dumps(data)
@@ -58,7 +63,9 @@ class GateWsClient(WebSocketApp):
         self.send(data)
 
     def get_sign(self, message):
-        h = hmac.new(SECRET_KEY.encode("utf8"), message.encode("utf8"), hashlib.sha512)
+        h = hmac.new(
+            self.secret_key.encode("utf8"), message.encode("utf8"), hashlib.sha512
+        )
         return h.hexdigest()
 
     def subscribe(self, channel, payload=None, auth_required=True):
@@ -75,12 +82,4 @@ class GateWsClient(WebSocketApp):
     def _on_open(self, ws):
         # subscribe to channels interested
         log.info("websocket connected")
-        self.subscribe("futures.tickers", [SYMBOL], False)
-
-
-if __name__ == "__main__":
-    log.info("Starting Gate WebSocket Client...")
-    ws_client = GateWsClient(url=GATE_WS_TEST_URL)
-    ws_client.run_forever()
-    event.set()  # Stop the ping thread when the main thread exits
-    log.info("Gate WebSocket Client stopped.")
+        self.subscribe("futures.tickers", [self.symbol], False)
