@@ -1,3 +1,4 @@
+from datetime import datetime
 import io
 
 import numpy as np
@@ -18,6 +19,7 @@ class RenkoCalculator:
         symbol: str,
         ohlcv_timeframe: str,
         atr_period: int,
+        ohlcv_count: int,
         discord_client: DiscordRestClient,
     ):
         self.current_atr = None
@@ -28,6 +30,7 @@ class RenkoCalculator:
         self.symbol = symbol
         self.ohlcv_timeframe = ohlcv_timeframe
         self.atr_period = atr_period
+        self.ohlcv_count = ohlcv_count
         self.discord_client = discord_client
 
     def set_ohlcv_history(self, ohlcv_history: list):
@@ -58,7 +61,7 @@ class RenkoCalculator:
 
             self.ohlcv_history.append(bar)
             # Keep history size manageable, but ensure enough for ATR calculation
-            if len(self.ohlcv_history) > 1000:
+            if len(self.ohlcv_history) > self.ohlcv_count:
                 self.ohlcv_history.pop(0)  # Remove oldest bar
 
     def calculate_brick_size(self):
@@ -85,95 +88,74 @@ class RenkoCalculator:
             self.current_atr = None
             self.brick_size = None
 
-    def process_new_price(self, current_price: float) -> list:
+    def handle_new_price(self, current_price: float) -> list:
         """
         Processes a new incoming price and generates new Renko bricks if formed.
         Returns a list of newly formed bricks.
         """
         if self.brick_size is None:
-            # Cannot form bricks without a calculated brick size (needs initial ATR)
             return []
 
         if self.last_renko_close is None:
-            # Initialize the last_renko_close to the nearest multiple of brick_size
-            # This ensures the first brick starts aligned with the grid.
             self.last_renko_close = (
                 round(current_price / self.brick_size) * self.brick_size
             )
             log.info(
                 f"[Renko] Initialized last_renko_close: {self.last_renko_close:.6g}"
             )
-            return []  # No brick formed yet on initialization
+            return []
 
         newly_formed_bricks = []
         price_diff = current_price - self.last_renko_close
-        if price_diff > 0:
-            direction = "up"
-        elif price_diff < 0:
-            direction = "down"
-        else:
-            return []  # No price change, no brick formed
 
-        if direction == "up":
-            last_brick_direction = (
-                self.renko_bricks[-1]["direction"] if self.renko_bricks else "up"
-            )
-            threshold_brick_size = (
-                self.brick_size if last_brick_direction == "up" else 2 * self.brick_size
-            )
-            if price_diff >= threshold_brick_size:
-                remaining_diff = price_diff - threshold_brick_size
-                count_additional_bricks = (
-                    int(remaining_diff // self.brick_size) if remaining_diff >= 0 else 0
-                )
+        if price_diff == 0:
+            return []
 
-                for i in range(count_additional_bricks):
-                    brick_open = self.last_renko_close
+        direction = "up" if price_diff > 0 else "down"
+        last_brick_direction = (
+            self.renko_bricks[-1]["direction"] if self.renko_bricks else direction
+        )
+        threshold_brick_size = (
+            self.brick_size
+            if last_brick_direction == direction
+            else 2 * self.brick_size
+        )
+
+        if (direction == "up" and price_diff >= threshold_brick_size) or (
+            direction == "down" and price_diff <= -threshold_brick_size
+        ):
+
+            total_diff = abs(price_diff)
+            first_brick_size = threshold_brick_size
+            remaining_diff = total_diff - first_brick_size
+            count_additional_bricks = (
+                1 + int(remaining_diff // self.brick_size) if remaining_diff >= 0 else 1
+            )
+
+            for i in range(count_additional_bricks):
+                brick_open = self.last_renko_close
+                if direction == "up":
                     brick_close = brick_open + (
-                        threshold_brick_size if i == 0 else self.brick_size
+                        first_brick_size if i == 0 else self.brick_size
                     )
-                    new_brick = {
-                        "open": brick_open,
-                        "close": brick_close,
-                        "direction": "up",
-                    }
-                    self.renko_bricks.append(new_brick)
-                    newly_formed_bricks.append(new_brick)
-                    self.last_renko_close = brick_close
-                direction = "up"
-
-        elif direction == "down":
-            last_brick_direction = (
-                self.renko_bricks[-1]["direction"] if self.renko_bricks else "down"
-            )
-            threshold_brick_size = (
-                self.brick_size
-                if last_brick_direction == "down"
-                else 2 * self.brick_size
-            )
-            if price_diff <= -threshold_brick_size:
-                remaining_diff = -price_diff - threshold_brick_size
-                count_additional_bricks = (
-                    int(remaining_diff // self.brick_size) if remaining_diff >= 0 else 0
-                )
-
-                for i in range(count_additional_bricks):
-                    brick_open = self.last_renko_close
+                else:
                     brick_close = brick_open - (
-                        threshold_brick_size if i == 0 else self.brick_size
+                        first_brick_size if i == 0 else self.brick_size
                     )
-                    new_brick = {
-                        "open": brick_open,
-                        "close": brick_close,
-                        "direction": "down",
-                    }
-                    self.renko_bricks.append(new_brick)
-                    newly_formed_bricks.append(new_brick)
-                    self.last_renko_close = brick_close
-                direction = "down"
+                new_brick = {
+                    "open": brick_open,
+                    "close": brick_close,
+                    "direction": direction,
+                }
+                self.renko_bricks.append(new_brick)
+                if self.renko_bricks[-1]["direction"] != direction:
+                    self.send_renko_plot_to_discord()
+                newly_formed_bricks.append(new_brick)
+                self.last_renko_close = brick_close
+                first_brick_size = self.brick_size
 
         while len(self.renko_bricks) > 100:
-            self.renko_bricks.pop(0)  # Remove the oldest brick
+            self.renko_bricks.pop(0)
 
         return newly_formed_bricks
 
@@ -193,7 +175,7 @@ class RenkoCalculator:
 
         for bar in self.ohlcv_history:
             current_price = bar[3]
-            self.process_new_price(current_price)
+            self.handle_new_price(current_price)
 
     def send_renko_plot_to_discord(self):
         """
@@ -216,9 +198,12 @@ class RenkoCalculator:
             color = "green" if direction == "up" else "red"
             ax.plot([i, i], [open_price, close_price], color=color, linewidth=2)
 
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ax.set_title(
-            f"{self.symbol}, {self.ohlcv_timeframe} Renko ({self.atr_period})",
+            f"{self.symbol}, {self.ohlcv_timeframe} Renko ({self.atr_period}), {current_time}",
             color="white",
+            loc="center",
+            fontsize=14,
         )
         ax.set_xlabel("Brick Index", color="white")
         ax.set_ylabel("Price", color="white")
