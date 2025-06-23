@@ -33,5 +33,7 @@ class MessageHandler:
             for ticker_info in result:
                 if ticker_info.get("contract") == "BTC_USDT":
                     last_price = float(ticker_info.get("last"))
-                    self.renko_calculator.handle_new_price(last_price)
+                    self.renko_calculator.handle_new_price(
+                        last_price, is_historical=False
+                    )
                     break

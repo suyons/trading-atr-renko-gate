@@ -84,11 +84,12 @@ class RenkoCalculator:
         if atr_values[-1] is not None and not np.isnan(atr_values[-1]):
             self.current_atr = atr_values[-1]
             self.brick_size = float(self.current_atr)
+            log.info(f"[Renko] Calculated brick_size: {self.brick_size:.4g}")
         else:
             self.current_atr = None
             self.brick_size = None
 
-    def handle_new_price(self, current_price: float) -> list:
+    def handle_new_price(self, current_price: float, is_historical: bool) -> list:
         """
         Processes a new incoming price and generates new Renko bricks if formed.
         Returns a list of newly formed bricks.
@@ -148,7 +149,10 @@ class RenkoCalculator:
                     "direction": direction,
                 }
                 self.renko_bricks.append(new_brick)
-                if self.renko_bricks[-1]["direction"] != direction:
+                if (
+                    not is_historical
+                    and self.renko_bricks[-1]["direction"] != last_brick_direction
+                ):
                     self.send_renko_plot_to_discord()
                 newly_formed_bricks.append(new_brick)
                 self.last_renko_close = brick_close
@@ -175,7 +179,7 @@ class RenkoCalculator:
 
         for bar in self.ohlcv_history:
             current_price = bar[3]
-            self.handle_new_price(current_price)
+            self.handle_new_price(current_price, is_historical=True)
 
     def send_renko_plot_to_discord(self):
         """
