@@ -2,8 +2,9 @@ import requests
 
 
 class GateRestClient:
-    def __init__(self, url, ohlcv_count):
+    def __init__(self, url, ohlcv_timeframe: str, ohlcv_count: int):
         self.url = url
+        self.ohlcv_timeframe = ohlcv_timeframe
         self.ohlcv_count = ohlcv_count
         self.headers = {
             "Accept": "application/json",
@@ -63,15 +64,25 @@ class GateRestClient:
 
             # Update the 'from' parameter for the next request with the last candlestick's timestamp + 1
             first_timestamp = float(data[0]["t"])
-            params["to"] = int(first_timestamp) - 60
+            params["to"] = int(first_timestamp) - self.get_seconds_by_timeframe()
             remain = total_limit - len(all_data)
             params["limit"] = min(fetch_limit, remain)
 
         return all_data[:total_limit]
 
-
-# 사용 예시
-if __name__ == "__main__":
-    client = GateRestClient()
-    data = client.get_futures_candlesticks("BTC_USDT")
-    print(data)
+    def get_seconds_by_timeframe(self) -> int:
+        """
+        Returns the number of seconds for the current ohlcv_timeframe.
+        """
+        timeframe_seconds = {
+            "1s": 1,
+            "1m": 60,
+            "5m": 300,
+            "15m": 900,
+            "30m": 1800,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400,
+            "1w": 604800,
+        }
+        return timeframe_seconds.get(self.ohlcv_timeframe)

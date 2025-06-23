@@ -33,6 +33,7 @@ def main():
     # Dependencies initialization
     gate_rest_client = GateRestClient(
         url=GATE_REST_TEST_URL,
+        ohlcv_timeframe=OHLCV_TIMEFRAME,
         ohlcv_count=OHLCV_COUNT,
     )
     discord_client = DiscordRestClient(url=DISCORD_WEBHOOK_URL)
