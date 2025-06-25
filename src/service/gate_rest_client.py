@@ -1,15 +1,127 @@
+import hashlib
+import hmac
+import time
+
 import requests
 
 
 class GateRestClient:
-    def __init__(self, url, ohlcv_timeframe: str, ohlcv_count: int):
-        self.url = url
+    def __init__(
+        self,
+        url_host: str,
+        url_prefix: str,
+        api_key: str,
+        secret_key: str,
+        ohlcv_timeframe: str,
+        ohlcv_count: int,
+    ):
+        self.url_host = url_host
+        self.url_prefix = url_prefix
+        self.api_key = api_key
+        self.secret_key = secret_key
         self.ohlcv_timeframe = ohlcv_timeframe
         self.ohlcv_count = ohlcv_count
         self.headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
+
+    @staticmethod
+    def convert_timeframe_to_seconds(timeframe: str) -> int:
+        """
+        Returns the number of seconds for the current ohlcv_timeframe.
+        """
+        timeframe_seconds = {
+            "1s": 1,
+            "1m": 60,
+            "5m": 300,
+            "15m": 900,
+            "30m": 1800,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400,
+            "1w": 604800,
+        }
+        return timeframe_seconds.get(timeframe, 60)
+
+    def _generate_signature(self, method, url, query_params=None, payload_string=None):
+        t = time.time()
+        m = hashlib.sha512()
+        m.update((payload_string or "").encode("utf-8"))
+        hashed_payload = m.hexdigest()
+        s = "%s\n%s\n%s\n%s\n%s" % (method, url, query_params or "", hashed_payload, t)
+        sign = hmac.new(
+            self.secret_key.encode("utf-8"), s.encode("utf-8"), hashlib.sha512
+        ).hexdigest()
+        return {"KEY": self.api_key, "Timestamp": str(t), "SIGN": sign}
+
+    def get_futures_accounts(self):
+        """
+        Retrieve futures account information.
+        See: https://www.gate.com/docs/developers/apiv4/en/#get-futures-accounts
+
+        Returns:
+            dict: Futures account information including:
+            - id (str): Account ID
+            - type (str): Account type (e.g., 'futures')
+            - balance (str): Total balance in quote currency
+            - available (str): Available balance in quote currency
+            - hold (str): Held balance in quote currency
+            - risk_limit (int): Risk limit for the account
+            - position_margin (str): Margin used for positions in quote currency
+            - unrealised_pnl (str): Unrealized profit and loss in quote currency
+        """
+        path = "/futures/usdt/accounts"
+        sign_headers = self._generate_signature(
+            "GET",
+            self.url_prefix + path,
+            "",
+        )
+        request_headers = {**self.headers, **sign_headers}
+        response = requests.get(
+            self.url_host + self.url_prefix + path, headers=request_headers
+        )
+        return response.json()
+
+    def get_futures_tickers(self, params=None):
+        """
+        List futures tickers.
+
+        Parameters:
+            settle (str, required, in path): Settle currency ('btc', 'usdt').
+            contract (str, optional, in query): Futures contract, return related data only if specified.
+
+        Returns:
+            list: List of futures tickers. Each ticker is a dict with:
+            - contract (str): Futures contract
+            - last (str): Last trading price
+            - change_percentage (str): Change percentage
+            - total_size (str): Contract total size
+            - low_24h (str): Lowest trading price in recent 24h
+            - high_24h (str): Highest trading price in recent 24h
+            - volume_24h (str): Trade size in recent 24h
+            - volume_24h_btc (str): Trade volumes in recent 24h in BTC (deprecated)
+            - volume_24h_usd (str): Trade volumes in recent 24h in USD (deprecated)
+            - volume_24h_base (str): Trade volume in recent 24h, in base currency
+            - volume_24h_quote (str): Trade volume in recent 24h, in quote currency
+            - volume_24h_settle (str): Trade volume in recent 24h, in settle currency
+            - mark_price (str): Recent mark price
+            - funding_rate (str): Funding rate
+            - funding_rate_indicative (str): Indicative Funding rate in next period (deprecated)
+            - index_price (str): Index price
+            - quanto_base_rate (str): Exchange rate of base and settlement currency in Quanto contract
+            - lowest_ask (str): Recent lowest ask
+            - lowest_size (str): Latest seller's lowest price order quantity
+            - highest_bid (str): Recent highest bid
+            - highest_size (str): Latest buyer's highest price order volume
+        """
+        path = "/futures/usdt/tickers"
+        response = requests.get(
+            self.url_host + self.url_prefix + path,
+            headers=self.headers,
+            params=params or {},
+        )
+        return response.json()
 
     def get_futures_candlesticks(self, params):
         """
@@ -35,7 +147,13 @@ class GateRestClient:
             - sum (str): Trading volume (unit: Quote currency)
         """
         path = f"/futures/usdt/candlesticks"
-        response = requests.get(self.url + path, headers=self.headers, params=params)
+        response = requests.get(
+            self.url_host + self.url_prefix + path, headers=self.headers, params=params
+        )
+        if response.status_code != 200:
+            raise Exception(
+                f"Error fetching futures candlesticks: {response.status_code} - {response.text}"
+            )
         return response.json()
 
     def get_futures_candlesticks_bulk(self, params):
@@ -64,25 +182,45 @@ class GateRestClient:
 
             # Update the 'from' parameter for the next request with the last candlestick's timestamp + 1
             first_timestamp = float(data[0]["t"])
-            params["to"] = int(first_timestamp) - self.get_seconds_by_timeframe()
+            params["to"] = int(first_timestamp) - self.convert_timeframe_to_seconds(
+                self.ohlcv_timeframe
+            )
             remain = total_limit - len(all_data)
+            if remain < 1:
+                break
             params["limit"] = min(fetch_limit, remain)
 
         return all_data[:total_limit]
 
-    def get_seconds_by_timeframe(self) -> int:
+    def post_futures_order(self, params):
         """
-        Returns the number of seconds for the current ohlcv_timeframe.
+        Place a futures order.
+
+        Args:
+            params (dict): Dictionary of request parameters. Example keys:
+            - 'contract' (str, required): Futures contract (e.g., 'BTC_USDT').
+            - 'size' (int, required): Order size in contract units.
+            - 'price' (str, optional): Order price in quote currency.
+            - 'type' (str, optional): Order type ('limit', 'market', etc.).
+            - 'side' (str, optional): Order side ('buy', 'sell').
+            - 'match_price' (bool, optional): If True, match the best price.
+            - 'reduce_only' (bool, optional): If True, reduce position only.
+            - 'client_order_id' (str, optional): Custom client order ID.
+
+        Returns:
+            dict: Response from the API containing order details.
         """
-        timeframe_seconds = {
-            "1s": 1,
-            "1m": 60,
-            "5m": 300,
-            "15m": 900,
-            "30m": 1800,
-            "1h": 3600,
-            "4h": 14400,
-            "1d": 86400,
-            "1w": 604800,
-        }
-        return timeframe_seconds.get(self.ohlcv_timeframe)
+        path = "/futures/usdt/orders"
+        sign_headers = self._generate_signature(
+            "POST",
+            self.url_prefix + path,
+            "",
+            payload_string=str(params),
+        )
+        request_headers = {**self.headers, **sign_headers}
+        response = requests.post(
+            self.url_host + self.url_prefix + path,
+            headers=request_headers,
+            json=params,
+        )
+        return response.json()

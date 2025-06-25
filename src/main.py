@@ -6,20 +6,20 @@ from config.logger_config import log
 from service.discord_rest_client import DiscordRestClient
 from service.gate_rest_client import GateRestClient
 from service.gate_ws_client import GateWsClient
-from service.message_handler import MessageHandler
 from service.renko_calculator import RenkoCalculator
+import sched
+import time
 
 load_dotenv()
 
-GATE_REST_LIVE_URL = os.getenv("GATE_REST_LIVE_URL")
-GATE_REST_TEST_URL = os.getenv("GATE_REST_TEST_URL")
-GATE_WS_LIVE_URL = os.getenv("GATE_WS_LIVE_URL")
-GATE_WS_TEST_URL = os.getenv("GATE_WS_TEST_URL")
+GATE_URL_HOST_LIVE = os.getenv("GATE_URL_HOST_LIVE")
+GATE_URL_HOST_TEST = os.getenv("GATE_URL_HOST_TEST")
+GATE_URL_PREFIX = os.getenv("GATE_URL_PREFIX")
 
 API_KEY = os.getenv("API_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY")
 
-SYMBOL = os.getenv("SYMBOL")
+SYMBOL_LIST = os.getenv("SYMBOL_LIST").split(",")
 OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
 ATR_PERIOD = int(os.getenv("ATR_PERIOD"))
 OHLCV_COUNT = int(os.getenv("OHLCV_COUNT"))
@@ -28,46 +28,50 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 
 def main():
-    log.info("[Init] Starting the Real-time ATR Renko Trading Bot...")
-
     # Dependencies initialization
     gate_rest_client = GateRestClient(
-        url=GATE_REST_TEST_URL,
+        url_host=GATE_URL_HOST_TEST,
+        url_prefix=GATE_URL_PREFIX,
+        api_key=API_KEY,
+        secret_key=SECRET_KEY,
         ohlcv_timeframe=OHLCV_TIMEFRAME,
         ohlcv_count=OHLCV_COUNT,
     )
     discord_client = DiscordRestClient(url=DISCORD_WEBHOOK_URL)
     renko_calculator = RenkoCalculator(
-        symbol=SYMBOL,
+        symbol_list=SYMBOL_LIST,
         ohlcv_timeframe=OHLCV_TIMEFRAME,
         atr_period=ATR_PERIOD,
         ohlcv_count=OHLCV_COUNT,
         discord_client=discord_client,
-    )
-    message_handler = MessageHandler(renko_calculator=renko_calculator)
-    gate_websocket_client = GateWsClient(
-        url=GATE_WS_TEST_URL,
-        api_key=API_KEY,
-        secret_key=SECRET_KEY,
-        symbol=SYMBOL,
-        message_handler=message_handler,
+        gate_rest_client=gate_rest_client,
     )
 
     # Load the futures historical data
-    ohlcv_history = gate_rest_client.get_futures_candlesticks_bulk(
-        params={
-            "contract": SYMBOL,
-            "limit": OHLCV_COUNT,
-            "interval": OHLCV_TIMEFRAME,
-        }
-    )
-    renko_calculator.set_ohlcv_history(ohlcv_history)
-    renko_calculator.calculate_brick_size()
-    renko_calculator.set_historical_bricks()
-    renko_calculator.send_renko_plot_to_discord()
+    for symbol in SYMBOL_LIST:
+        ohlcv_list = gate_rest_client.get_futures_candlesticks_bulk(
+            params={
+                "contract": symbol,
+                "limit": OHLCV_COUNT,
+                "interval": OHLCV_TIMEFRAME,
+            }
+        )
+        renko_calculator.set_ohlcv_list_into_symbol_data_list(symbol, ohlcv_list)
+    renko_calculator.set_brick_size_into_symbol_data_list()
+    renko_calculator.set_renko_list_into_symbol_data_list()
+    for symbol in SYMBOL_LIST:
+        renko_calculator.send_renko_plot_to_discord(symbol)
 
-    # Subscribe to the WebSocket for real-time updates
-    gate_websocket_client.run_forever()
+    # Start the stream for the real-time data
+    scheduler = sched.scheduler(time.time, time.sleep)
+
+    def fetch_then_process_ticker_data_scheduled():
+        ticker_data = gate_rest_client.get_futures_tickers()
+        renko_calculator.handle_new_ticker_data(ticker_data)
+        scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
+
+    scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
+    scheduler.run()
 
 
 if __name__ == "__main__":
