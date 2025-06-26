@@ -7,7 +7,7 @@ import talib
 
 from config.logger_config import log
 from service.discord_rest_client import DiscordRestClient
-from service.gate_rest_client import GateRestClient
+from service.order_handler import OrderHandler
 
 
 class RenkoCalculator:
@@ -22,7 +22,7 @@ class RenkoCalculator:
         atr_period: int,
         ohlcv_count: int,
         discord_client: DiscordRestClient,
-        gate_rest_client: GateRestClient = None,
+        order_handler: OrderHandler = None,
     ):
         self.symbol_data_list = []
         self.symbol_list = symbol_list
@@ -30,7 +30,7 @@ class RenkoCalculator:
         self.atr_period = atr_period
         self.ohlcv_count = ohlcv_count
         self.discord_client = discord_client
-        self.gate_rest_client = gate_rest_client
+        self.order_handler = order_handler
 
     def set_ohlcv_list_into_symbol_data_list(self, symbol: str, ohlcv_list: list):
         """
@@ -106,12 +106,89 @@ class RenkoCalculator:
             else:
                 symbol_data["renko_brick_size"] = None
 
+    def set_renko_list_into_symbol_data_list(self):
+        """
+        For each symbol in symbol_data_list, rebuilds the renko_list from ohlcv_list using the calculated renko_brick_size.
+        """
+        for symbol_data in self.symbol_data_list:
+            ohlcv_list = symbol_data.get("ohlcv_list")
+            renko_brick_size = symbol_data.get("renko_brick_size")
+            if not ohlcv_list or not renko_brick_size:
+                log.warning(
+                    f"[Renko] Cannot set historical bricks for {symbol_data.get('symbol')}: missing OHLCV or brick size."
+                )
+                symbol_data["renko_list"] = []
+                continue
+
+            renko_bricks = []
+            last_renko_close = None
+
+            for ohlcv_row in ohlcv_list:
+                current_price = (
+                    ohlcv_row[3]
+                    if isinstance(ohlcv_row, list)
+                    else float(ohlcv_row["c"])
+                )
+                if last_renko_close is None:
+                    last_renko_close = (
+                        round(current_price / renko_brick_size) * renko_brick_size
+                    )
+                    continue
+
+                price_diff = current_price - last_renko_close
+                if price_diff == 0:
+                    continue
+
+                direction = "up" if price_diff > 0 else "down"
+                last_brick_direction = (
+                    renko_bricks[-1]["direction"] if renko_bricks else direction
+                )
+                threshold_brick_size = (
+                    renko_brick_size
+                    if last_brick_direction == direction
+                    else 2 * renko_brick_size
+                )
+
+                if (direction == "up" and price_diff >= threshold_brick_size) or (
+                    direction == "down" and price_diff <= -threshold_brick_size
+                ):
+                    total_diff = abs(price_diff)
+                    first_brick_size = threshold_brick_size
+                    remaining_diff = total_diff - first_brick_size
+                    count_additional_bricks = (
+                        1 + int(remaining_diff // renko_brick_size)
+                        if remaining_diff >= 0
+                        else 1
+                    )
+
+                    for i in range(count_additional_bricks):
+                        brick_open = last_renko_close
+                        if direction == "up":
+                            brick_close = brick_open + (
+                                first_brick_size if i == 0 else renko_brick_size
+                            )
+                        else:
+                            brick_close = brick_open - (
+                                first_brick_size if i == 0 else renko_brick_size
+                            )
+                        new_brick = {
+                            "open": brick_open,
+                            "close": brick_close,
+                            "direction": direction,
+                        }
+                        renko_bricks.append(new_brick)
+                        last_renko_close = brick_close
+                        first_brick_size = renko_brick_size
+            if len(renko_bricks) > 200:
+                renko_bricks = renko_bricks[-200:]
+            symbol_data["renko_list"] = renko_bricks
+
     def handle_new_ticker_data(self, ticker_data_list: list[dict]):
         """
         Processes new incoming ticker data, updates renko_list in self.symbol_data_list.
         Only processes symbols present in self.symbol_data_list.
         If a new brick is formed, appends it to renko_list.
-        If a buy/sell signal (brick direction changes), sends order via gate_rest_client.
+        If a buy/sell signal (brick direction changes), sends order via order_handler.
         """
         # 1. validate ticker_data
         if not isinstance(ticker_data_list, list) or not ticker_data_list:
@@ -201,23 +278,14 @@ class RenkoCalculator:
                     if (
                         last_brick_direction
                         and direction != last_brick_direction
-                        and self.gate_rest_client
+                        and self.order_handler
                     ):
                         side = "buy" if direction == "up" else "sell"
                         try:
-                            # TODO: implement size calculation
-                            futures_order_params = {
-                                "contract": symbol,
-                                "size": 1,
-                                "type": "market",
-                                "side": side,
-                            }
-                            self.gate_rest_client.post_futures_order(
-                                futures_order_params
+                            self.order_handler.place_market_entry_order(
+                                symbol=symbol, side=side, price=current_price
                             )
-                            log.info(
-                                f"[Renko] Signal {side.upper()} for {symbol} at {brick_close}"
-                            )
+                            self.send_renko_plot_to_discord(symbol)
                         except Exception as e:
                             log.error(f"[Renko] Order error for {symbol}: {e}")
                     last_brick_direction = direction
@@ -228,83 +296,6 @@ class RenkoCalculator:
             # Keep only last 200 bricks
             if len(renko_bricks) > 200:
                 symbol_data["renko_list"] = renko_bricks[-200:]
-
-    def set_renko_list_into_symbol_data_list(self):
-        """
-        For each symbol in symbol_data_list, rebuilds the renko_list from ohlcv_list using the calculated renko_brick_size.
-        """
-        for symbol_data in self.symbol_data_list:
-            ohlcv_list = symbol_data.get("ohlcv_list")
-            renko_brick_size = symbol_data.get("renko_brick_size")
-            if not ohlcv_list or not renko_brick_size:
-                log.warning(
-                    f"[Renko] Cannot set historical bricks for {symbol_data.get('symbol')}: missing OHLCV or brick size."
-                )
-                symbol_data["renko_list"] = []
-                continue
-
-            renko_bricks = []
-            last_renko_close = None
-
-            for ohlcv_row in ohlcv_list:
-                current_price = (
-                    ohlcv_row[3]
-                    if isinstance(ohlcv_row, list)
-                    else float(ohlcv_row["c"])
-                )
-                if last_renko_close is None:
-                    last_renko_close = (
-                        round(current_price / renko_brick_size) * renko_brick_size
-                    )
-                    continue
-
-                price_diff = current_price - last_renko_close
-                if price_diff == 0:
-                    continue
-
-                direction = "up" if price_diff > 0 else "down"
-                last_brick_direction = (
-                    renko_bricks[-1]["direction"] if renko_bricks else direction
-                )
-                threshold_brick_size = (
-                    renko_brick_size
-                    if last_brick_direction == direction
-                    else 2 * renko_brick_size
-                )
-
-                if (direction == "up" and price_diff >= threshold_brick_size) or (
-                    direction == "down" and price_diff <= -threshold_brick_size
-                ):
-                    total_diff = abs(price_diff)
-                    first_brick_size = threshold_brick_size
-                    remaining_diff = total_diff - first_brick_size
-                    count_additional_bricks = (
-                        1 + int(remaining_diff // renko_brick_size)
-                        if remaining_diff >= 0
-                        else 1
-                    )
-
-                    for i in range(count_additional_bricks):
-                        brick_open = last_renko_close
-                        if direction == "up":
-                            brick_close = brick_open + (
-                                first_brick_size if i == 0 else renko_brick_size
-                            )
-                        else:
-                            brick_close = brick_open - (
-                                first_brick_size if i == 0 else renko_brick_size
-                            )
-                        new_brick = {
-                            "open": brick_open,
-                            "close": brick_close,
-                            "direction": direction,
-                        }
-                        renko_bricks.append(new_brick)
-                        last_renko_close = brick_close
-                        first_brick_size = renko_brick_size
-            if len(renko_bricks) > 200:
-                renko_bricks = renko_bricks[-200:]
-            symbol_data["renko_list"] = renko_bricks
 
     def send_renko_plot_to_discord(self, symbol: str):
         """

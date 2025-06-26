@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import json
 import time
 
 import requests
@@ -21,13 +22,13 @@ class GateRestClient:
         self.secret_key = secret_key
         self.ohlcv_timeframe = ohlcv_timeframe
         self.ohlcv_count = ohlcv_count
-        self.headers = {
+        self.request_headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
 
     @staticmethod
-    def convert_timeframe_to_seconds(timeframe: str) -> int:
+    def _convert_timeframe_to_seconds(timeframe: str) -> int:
         """
         Returns the number of seconds for the current ohlcv_timeframe.
         """
@@ -44,12 +45,12 @@ class GateRestClient:
         }
         return timeframe_seconds.get(timeframe, 60)
 
-    def _generate_signature(self, method, url, query_params=None, payload_string=None):
-        t = time.time()
+    def _generate_signature(self, method, url, query_string=None, payload_string=None):
+        t = int(time.time())
         m = hashlib.sha512()
         m.update((payload_string or "").encode("utf-8"))
         hashed_payload = m.hexdigest()
-        s = "%s\n%s\n%s\n%s\n%s" % (method, url, query_params or "", hashed_payload, t)
+        s = "%s\n%s\n%s\n%s\n%s" % (method, url, query_string or "", hashed_payload, t)
         sign = hmac.new(
             self.secret_key.encode("utf-8"), s.encode("utf-8"), hashlib.sha512
         ).hexdigest()
@@ -77,7 +78,7 @@ class GateRestClient:
             self.url_prefix + path,
             "",
         )
-        request_headers = {**self.headers, **sign_headers}
+        request_headers = {**self.request_headers, **sign_headers}
         response = requests.get(
             self.url_host + self.url_prefix + path, headers=request_headers
         )
@@ -118,7 +119,7 @@ class GateRestClient:
         path = "/futures/usdt/tickers"
         response = requests.get(
             self.url_host + self.url_prefix + path,
-            headers=self.headers,
+            headers=self.request_headers,
             params=params or {},
         )
         return response.json()
@@ -148,7 +149,9 @@ class GateRestClient:
         """
         path = f"/futures/usdt/candlesticks"
         response = requests.get(
-            self.url_host + self.url_prefix + path, headers=self.headers, params=params
+            self.url_host + self.url_prefix + path,
+            headers=self.request_headers,
+            params=params,
         )
         if response.status_code != 200:
             raise Exception(
@@ -182,7 +185,7 @@ class GateRestClient:
 
             # Update the 'from' parameter for the next request with the last candlestick's timestamp + 1
             first_timestamp = float(data[0]["t"])
-            params["to"] = int(first_timestamp) - self.convert_timeframe_to_seconds(
+            params["to"] = int(first_timestamp) - self._convert_timeframe_to_seconds(
                 self.ohlcv_timeframe
             )
             remain = total_limit - len(all_data)
@@ -192,35 +195,48 @@ class GateRestClient:
 
         return all_data[:total_limit]
 
+    # TODO: fix 401 INVALID_SIGNATURE error
     def post_futures_order(self, params):
         """
         Place a futures order.
 
-        Args:
-            params (dict): Dictionary of request parameters. Example keys:
-            - 'contract' (str, required): Futures contract (e.g., 'BTC_USDT').
-            - 'size' (int, required): Order size in contract units.
-            - 'price' (str, optional): Order price in quote currency.
-            - 'type' (str, optional): Order type ('limit', 'market', etc.).
-            - 'side' (str, optional): Order side ('buy', 'sell').
-            - 'match_price' (bool, optional): If True, match the best price.
-            - 'reduce_only' (bool, optional): If True, reduce position only.
-            - 'client_order_id' (str, optional): Custom client order ID.
+        Parameters:
+            params (dict): Dictionary of request parameters. Keys:
+            - contract (str, required): Futures contract (e.g., 'BTC_USDT').
+            - size (int, required): Order size. Positive for buy, negative for sell.
+            - iceberg (int, optional): Display size for iceberg order. 0 for non-iceberg.
+            - price (str, optional): Order price. 0 for market order with tif='ioc'.
+            - close (bool, optional): Set True to close the position (size=0).
+            - reduce_only (bool, optional): Set True for reduce-only order.
+            - tif (str, optional): Time in force. One of ['gtc', 'ioc', 'poc', 'fok'].
+            - text (str, optional): Custom order info. Must start with 't-' and max 28 bytes if not reserved. Only numbers, letters, '_', '-', '.' allowed.
+            - auto_size (str, optional): For dual-mode close. 'close_long' or 'close_short'. Requires size=0.
+            - stp_act (str, optional): Self-Trading Prevention Action. One of ['co', 'cn', 'cb', '-'].
+            - settle (str, required in path): Settle currency, e.g., 'usdt' or 'btc'.
 
         Returns:
-            dict: Response from the API containing order details.
+            dict: API response with order details.
+
+        Notes:
+            - 'tif' (Time in force):
+            'gtc': GoodTillCancelled,
+            'ioc': ImmediateOrCancelled,
+            'poc': PendingOrCancelled (post-only),
+            'fok': FillOrKill.
+            - 'text': Custom info for order identification. Reserved values: 'web', 'api', 'app', 'auto_deleveraging', 'liquidation', 'liq-xxx', 'hedge-liq-xxx', 'pm_liquidate', 'comb_margin_liquidate', 'scm_liquidate', 'insurance'.
+            - 'stp_act': Self-trade prevention. Only for users in STP group.
         """
         path = "/futures/usdt/orders"
         sign_headers = self._generate_signature(
             "POST",
             self.url_prefix + path,
             "",
-            payload_string=str(params),
+            payload_string=json.dumps(params),
         )
-        request_headers = {**self.headers, **sign_headers}
+        sign_headers.update(self.request_headers)
         response = requests.post(
             self.url_host + self.url_prefix + path,
-            headers=request_headers,
-            json=params,
+            headers=sign_headers,
+            data=params,
         )
         return response.json()

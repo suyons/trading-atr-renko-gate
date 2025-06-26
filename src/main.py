@@ -2,10 +2,9 @@ import os
 
 from dotenv import load_dotenv
 
-from config.logger_config import log
 from service.discord_rest_client import DiscordRestClient
 from service.gate_rest_client import GateRestClient
-from service.gate_ws_client import GateWsClient
+from service.order_handler import OrderHandler
 from service.renko_calculator import RenkoCalculator
 import sched
 import time
@@ -24,29 +23,34 @@ OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
 ATR_PERIOD = int(os.getenv("ATR_PERIOD"))
 OHLCV_COUNT = int(os.getenv("OHLCV_COUNT"))
 
+LEVERAGE = int(os.getenv("LEVERAGE"))  # Default to 2 if not set
+
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+
+# Dependencies initialization
+gate_rest_client = GateRestClient(
+    url_host=GATE_URL_HOST_TEST,
+    url_prefix=GATE_URL_PREFIX,
+    api_key=API_KEY,
+    secret_key=SECRET_KEY,
+    ohlcv_timeframe=OHLCV_TIMEFRAME,
+    ohlcv_count=OHLCV_COUNT,
+)
+order_handler = OrderHandler(
+    gate_rest_client=gate_rest_client, symbol_list=SYMBOL_LIST, leverage=LEVERAGE
+)
+discord_client = DiscordRestClient(url=DISCORD_WEBHOOK_URL)
+renko_calculator = RenkoCalculator(
+    symbol_list=SYMBOL_LIST,
+    ohlcv_timeframe=OHLCV_TIMEFRAME,
+    atr_period=ATR_PERIOD,
+    ohlcv_count=OHLCV_COUNT,
+    discord_client=discord_client,
+    order_handler=order_handler,
+)
 
 
 def main():
-    # Dependencies initialization
-    gate_rest_client = GateRestClient(
-        url_host=GATE_URL_HOST_TEST,
-        url_prefix=GATE_URL_PREFIX,
-        api_key=API_KEY,
-        secret_key=SECRET_KEY,
-        ohlcv_timeframe=OHLCV_TIMEFRAME,
-        ohlcv_count=OHLCV_COUNT,
-    )
-    discord_client = DiscordRestClient(url=DISCORD_WEBHOOK_URL)
-    renko_calculator = RenkoCalculator(
-        symbol_list=SYMBOL_LIST,
-        ohlcv_timeframe=OHLCV_TIMEFRAME,
-        atr_period=ATR_PERIOD,
-        ohlcv_count=OHLCV_COUNT,
-        discord_client=discord_client,
-        gate_rest_client=gate_rest_client,
-    )
-
     # Load the futures historical data
     for symbol in SYMBOL_LIST:
         ohlcv_list = gate_rest_client.get_futures_candlesticks_bulk(
@@ -74,5 +78,12 @@ def main():
     scheduler.run()
 
 
+def test():
+    # This function is a placeholder for testing purposes.
+    order_handler.place_market_entry_order(symbol="BTC_USDT", side="buy", price=99999.9)
+    pass
+
+
 if __name__ == "__main__":
     main()
+    # test()
