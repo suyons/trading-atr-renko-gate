@@ -71,8 +71,7 @@ def initialize_historical_data():
     renko_calculator.set_brick_size_into_symbol_data_list()
     renko_calculator.set_renko_list_into_symbol_data_list()
     discord_client.push_log_buffer(
-        f"[Main] Historial data loaded on {len(SYMBOL_LIST)} symbols: "
-        + str(SYMBOL_LIST).replace(",", ", ")
+        f"[Main] Historial data loaded on {len(SYMBOL_LIST)} symbols: {str(SYMBOL_LIST)}"
     )
     discord_client.flush_log_buffer()
     for symbol in SYMBOL_LIST:
