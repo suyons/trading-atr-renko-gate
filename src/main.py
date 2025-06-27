@@ -1,20 +1,20 @@
 import os
+import time
+from sched import scheduler
 
 from dotenv import load_dotenv
+from gate_api import Configuration, ApiClient, FuturesApi
+from gate_api.models.futures_candlestick import FuturesCandlestick
 
 from service.discord_client import DiscordClient
-from service.gate_client import GateClient
 from service.order_handler import OrderHandler
 from service.renko_calculator import RenkoCalculator
-from sched import scheduler
-import time
 
 # Load environment variables from .env file
 load_dotenv()
 
 GATE_URL_HOST_LIVE = os.getenv("GATE_URL_HOST_LIVE")
 GATE_URL_HOST_TEST = os.getenv("GATE_URL_HOST_TEST")
-GATE_URL_PREFIX = os.getenv("GATE_URL_PREFIX")
 
 API_KEY = os.getenv("API_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -29,17 +29,16 @@ LEVERAGE = int(os.getenv("LEVERAGE"))
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # Dependencies initialization
-gate_client = GateClient(
-    url_host=GATE_URL_HOST_TEST,
-    url_prefix=GATE_URL_PREFIX,
-    api_key=API_KEY,
-    secret_key=SECRET_KEY,
-    ohlcv_timeframe=OHLCV_TIMEFRAME,
-    ohlcv_count=OHLCV_COUNT,
+gate_configuration = Configuration(
+    host=GATE_URL_HOST_TEST,
+    key=API_KEY,
+    secret=SECRET_KEY,
 )
+gate_client = ApiClient(configuration=gate_configuration)
+gate_futures_api = FuturesApi(api_client=gate_client)
 discord_client = DiscordClient(url=DISCORD_WEBHOOK_URL)
 order_handler = OrderHandler(
-    gate_client=gate_client,
+    gate_futures_api=gate_futures_api,
     discord_client=discord_client,
     symbol_list=SYMBOL_LIST,
     leverage=LEVERAGE,
@@ -52,29 +51,39 @@ renko_calculator = RenkoCalculator(
     discord_client=discord_client,
     order_handler=order_handler,
 )
+data_stream_scheduler = scheduler(time.time, time.sleep)
+
+
+def initialize_historical_data():
+    discord_client.push_log_buffer("[Main] Renko trader started")
+    for symbol in SYMBOL_LIST:
+        candlestick_list: list[FuturesCandlestick] = (
+            gate_futures_api.list_futures_candlesticks(
+                settle="usdt",
+                contract=symbol,
+                limit=OHLCV_COUNT,
+                interval=OHLCV_TIMEFRAME,
+            )
+        )
+        renko_calculator.set_ohlcv_list_into_symbol_data_list(
+            symbol=symbol, candlestick_list=candlestick_list
+        )
+    renko_calculator.set_brick_size_into_symbol_data_list()
+    renko_calculator.set_renko_list_into_symbol_data_list()
+    discord_client.push_log_buffer(
+        f"[Main] Historial data loaded on {len(SYMBOL_LIST)} symbols: "
+        + str(SYMBOL_LIST).replace(",", ", ")
+    )
+    discord_client.flush_log_buffer()
+    for symbol in SYMBOL_LIST:
+        renko_calculator.send_renko_plot_to_discord(symbol=symbol)
 
 
 def main():
-    # Load the futures historical data
-    for symbol in SYMBOL_LIST:
-        ohlcv_list = gate_client.get_futures_candlesticks_bulk(
-            params={
-                "contract": symbol,
-                "limit": OHLCV_COUNT,
-                "interval": OHLCV_TIMEFRAME,
-            }
-        )
-        renko_calculator.set_ohlcv_list_into_symbol_data_list(symbol, ohlcv_list)
-    renko_calculator.set_brick_size_into_symbol_data_list()
-    renko_calculator.set_renko_list_into_symbol_data_list()
-    for symbol in SYMBOL_LIST:
-        renko_calculator.send_renko_plot_to_discord(symbol)
-
-    # Start the stream for the real-time data
-    data_stream_scheduler = scheduler(time.time, time.sleep)
+    initialize_historical_data()
 
     def fetch_then_process_ticker_data_scheduled():
-        ticker_data = gate_client.get_futures_tickers()
+        ticker_data = gate_futures_api.list_futures_tickers(settle="usdt")
         renko_calculator.handle_new_ticker_data(ticker_data)
         data_stream_scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
 
@@ -83,11 +92,9 @@ def main():
 
 
 def test():
-    # This function is a placeholder for testing purposes.
-    order_handler.place_market_entry_order(symbol="BTC_USDT", side="buy", price=99999.9)
     pass
 
 
 if __name__ == "__main__":
-    # main()
-    test()
+    main()
+    # test()

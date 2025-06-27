@@ -1,9 +1,11 @@
-from datetime import datetime
 import io
+from datetime import datetime
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import talib
+
+from gate_api.models.futures_candlestick import FuturesCandlestick
 
 from config.logger_config import log
 from service.discord_client import DiscordClient
@@ -32,31 +34,27 @@ class RenkoCalculator:
         self.discord_client = discord_client
         self.order_handler = order_handler
 
-    def set_ohlcv_list_into_symbol_data_list(self, symbol: str, ohlcv_list: list):
+    def set_ohlcv_list_into_symbol_data_list(
+        self, symbol: str, candlestick_list: list[FuturesCandlestick]
+    ):
         """
         Adds new OHLCV bars (list of dicts) to the history and recalculates ATR.
         Updates self.total_symbols_ohlcv_list to maintain per-symbol OHLCV data.
         Each ohlcv_bar should be a dict with keys: 'o', 'h', 'l', 'c', 'v', 't', 'sum'.
         """
-        required_keys = {"o", "h", "l", "c", "v", "t"}
         # Parse bars from input
-        if (
-            not ohlcv_list
-            or not isinstance(ohlcv_list, list)
-            or not isinstance(ohlcv_list[0], dict)
-            or not required_keys.issubset(ohlcv_list[0].keys())
-        ):
+        if not candlestick_list or len(candlestick_list) == 0:
             raise ValueError("[Renko] ohlcv_list must be a non-empty list.")
 
         parsed_ohlcv_list = []
-        for ohlcv_bar in ohlcv_list:
+        for candlestick_row in candlestick_list:
             parsed_ohlcv_row = [
-                float(ohlcv_bar["o"]),
-                float(ohlcv_bar["h"]),
-                float(ohlcv_bar["l"]),
-                float(ohlcv_bar["c"]),
-                float(ohlcv_bar["v"]),
-                int(ohlcv_bar["t"]),
+                float(candlestick_row.o),
+                float(candlestick_row.h),
+                float(candlestick_row.l),
+                float(candlestick_row.c),
+                float(candlestick_row.v),
+                int(candlestick_row.t),
             ]
             parsed_ohlcv_list.append(parsed_ohlcv_row)
 
@@ -191,7 +189,8 @@ class RenkoCalculator:
         If a buy/sell signal (brick direction changes), sends order via order_handler.
         """
         # 1. validate ticker_data
-        if not isinstance(ticker_data_list, list) or not ticker_data_list:
+        if not ticker_data_list or not isinstance(ticker_data_list, list):
+            log.warning("[Renko] Invalid ticker_data_list format.")
             return
 
         # 2. filter ticker_data to only include valid symbols
@@ -282,14 +281,11 @@ class RenkoCalculator:
                     ):
                         side = "buy" if direction == "up" else "sell"
                         try:
-                            # TODO: Uncomment when order_handler is implemented
-                            # self.order_handler.place_market_entry_order(
-                            #     symbol=symbol, side=side, price=current_price
-                            # )
                             self.send_renko_plot_to_discord(symbol)
-                            self.discord_client.push_log_buffer(
-                                f"[Renko] {side} {symbol} at {current_price}."
+                            self.order_handler.place_market_close_order_if_position_opened(
+                                symbol
                             )
+                            self.order_handler.place_market_open_order(symbol, side)
                         except Exception as e:
                             log.error(f"[Renko] Order error for {symbol}: {e}")
                     last_brick_direction = direction
