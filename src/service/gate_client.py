@@ -4,9 +4,10 @@ import json
 import time
 
 import requests
+from requests.exceptions import HTTPError
 
 
-class GateRestClient:
+class GateClient:
     def __init__(
         self,
         url_host: str,
@@ -82,6 +83,10 @@ class GateRestClient:
         response = requests.get(
             self.url_host + self.url_prefix + path, headers=request_headers
         )
+        if response.status_code != 200:
+            raise HTTPError(
+                f"[Gate] Error fetching futures accounts: {response.status_code} - {response.text}"
+            )
         return response.json()
 
     def get_futures_tickers(self, params=None):
@@ -122,6 +127,10 @@ class GateRestClient:
             headers=self.request_headers,
             params=params or {},
         )
+        if response.status_code != 200:
+            raise HTTPError(
+                f"[Gate] Error fetching futures tickers: {response.status_code} - {response.text}"
+            )
         return response.json()
 
     def get_futures_candlesticks(self, params):
@@ -154,8 +163,8 @@ class GateRestClient:
             params=params,
         )
         if response.status_code != 200:
-            raise Exception(
-                f"Error fetching futures candlesticks: {response.status_code} - {response.text}"
+            raise HTTPError(
+                f"[Gate] Error fetching futures candlesticks: {response.status_code} - {response.text}"
             )
         return response.json()
 
@@ -239,4 +248,8 @@ class GateRestClient:
             headers=sign_headers,
             data=params,
         )
+        if response.status_code != 201:
+            raise HTTPError(
+                f"[Gate] Error placing futures order: {response.status_code} - {response.text}"
+            )
         return response.json()

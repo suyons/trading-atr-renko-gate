@@ -1,12 +1,20 @@
+from requests.exceptions import HTTPError
+
 from config.logger_config import log
-from service.gate_rest_client import GateRestClient
+from service.discord_client import DiscordClient
+from service.gate_client import GateClient
 
 
 class OrderHandler:
     def __init__(
-        self, gate_rest_client: GateRestClient, symbol_list: list[str], leverage: int
+        self,
+        gate_client: GateClient,
+        discord_client: DiscordClient,
+        symbol_list: list[str],
+        leverage: int,
     ):
-        self.gate_rest_client = gate_rest_client
+        self.gate_client = gate_client
+        self.discord_client = discord_client
         self.symbol_list = symbol_list
         self.leverage = leverage
 
@@ -23,17 +31,18 @@ class OrderHandler:
             "text": f"t-renko-{side}",
         }
         try:
-            self.gate_rest_client.post_futures_order(futures_order_params)
-            log.info(f"[Order] {side.capitalize()} {symbol}, price: {price}, size: ${order_size_in_usdt:.2f}")
-        except Exception as e:
-            self.discord_rest_client.send_error_message(
-                f"Failed to place market order: {e}"
+            self.gate_client.post_futures_order(futures_order_params)
+            log.info(
+                f"[Order] {side.capitalize()} {symbol}, price: {price}, size: ${order_size_in_usdt:.2f}"
             )
+        except HTTPError as e:
+            self.discord_client.push_log_buffer(e)
+            self.discord_client.flush_log_buffer()
             raise e
 
     def get_account_total_balance(self):
         try:
-            account_info = self.gate_rest_client.get_futures_accounts()
+            account_info = self.gate_client.get_futures_accounts()
             if "total" not in account_info:
                 raise ValueError("Total balance not found in account info")
             total_balance = float(account_info["total"])

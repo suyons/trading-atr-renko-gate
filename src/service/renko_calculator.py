@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import talib
 
 from config.logger_config import log
-from service.discord_rest_client import DiscordRestClient
+from service.discord_client import DiscordClient
 from service.order_handler import OrderHandler
 
 
@@ -21,7 +21,7 @@ class RenkoCalculator:
         ohlcv_timeframe: str,
         atr_period: int,
         ohlcv_count: int,
-        discord_client: DiscordRestClient,
+        discord_client: DiscordClient,
         order_handler: OrderHandler = None,
     ):
         self.symbol_data_list = []
@@ -282,10 +282,14 @@ class RenkoCalculator:
                     ):
                         side = "buy" if direction == "up" else "sell"
                         try:
-                            self.order_handler.place_market_entry_order(
-                                symbol=symbol, side=side, price=current_price
-                            )
+                            # TODO: Uncomment when order_handler is implemented
+                            # self.order_handler.place_market_entry_order(
+                            #     symbol=symbol, side=side, price=current_price
+                            # )
                             self.send_renko_plot_to_discord(symbol)
+                            self.discord_client.push_log_buffer(
+                                f"[Renko] {side} {symbol} at {current_price}."
+                            )
                         except Exception as e:
                             log.error(f"[Renko] Order error for {symbol}: {e}")
                     last_brick_direction = direction

@@ -2,13 +2,14 @@ import os
 
 from dotenv import load_dotenv
 
-from service.discord_rest_client import DiscordRestClient
-from service.gate_rest_client import GateRestClient
+from service.discord_client import DiscordClient
+from service.gate_client import GateClient
 from service.order_handler import OrderHandler
 from service.renko_calculator import RenkoCalculator
-import sched
+from sched import scheduler
 import time
 
+# Load environment variables from .env file
 load_dotenv()
 
 GATE_URL_HOST_LIVE = os.getenv("GATE_URL_HOST_LIVE")
@@ -23,12 +24,12 @@ OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
 ATR_PERIOD = int(os.getenv("ATR_PERIOD"))
 OHLCV_COUNT = int(os.getenv("OHLCV_COUNT"))
 
-LEVERAGE = int(os.getenv("LEVERAGE"))  # Default to 2 if not set
+LEVERAGE = int(os.getenv("LEVERAGE"))
 
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # Dependencies initialization
-gate_rest_client = GateRestClient(
+gate_client = GateClient(
     url_host=GATE_URL_HOST_TEST,
     url_prefix=GATE_URL_PREFIX,
     api_key=API_KEY,
@@ -36,10 +37,13 @@ gate_rest_client = GateRestClient(
     ohlcv_timeframe=OHLCV_TIMEFRAME,
     ohlcv_count=OHLCV_COUNT,
 )
+discord_client = DiscordClient(url=DISCORD_WEBHOOK_URL)
 order_handler = OrderHandler(
-    gate_rest_client=gate_rest_client, symbol_list=SYMBOL_LIST, leverage=LEVERAGE
+    gate_client=gate_client,
+    discord_client=discord_client,
+    symbol_list=SYMBOL_LIST,
+    leverage=LEVERAGE,
 )
-discord_client = DiscordRestClient(url=DISCORD_WEBHOOK_URL)
 renko_calculator = RenkoCalculator(
     symbol_list=SYMBOL_LIST,
     ohlcv_timeframe=OHLCV_TIMEFRAME,
@@ -53,7 +57,7 @@ renko_calculator = RenkoCalculator(
 def main():
     # Load the futures historical data
     for symbol in SYMBOL_LIST:
-        ohlcv_list = gate_rest_client.get_futures_candlesticks_bulk(
+        ohlcv_list = gate_client.get_futures_candlesticks_bulk(
             params={
                 "contract": symbol,
                 "limit": OHLCV_COUNT,
@@ -67,15 +71,15 @@ def main():
         renko_calculator.send_renko_plot_to_discord(symbol)
 
     # Start the stream for the real-time data
-    scheduler = sched.scheduler(time.time, time.sleep)
+    data_stream_scheduler = scheduler(time.time, time.sleep)
 
     def fetch_then_process_ticker_data_scheduled():
-        ticker_data = gate_rest_client.get_futures_tickers()
+        ticker_data = gate_client.get_futures_tickers()
         renko_calculator.handle_new_ticker_data(ticker_data)
-        scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
+        data_stream_scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
 
-    scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
-    scheduler.run()
+    data_stream_scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
+    data_stream_scheduler.run()
 
 
 def test():
@@ -85,5 +89,5 @@ def test():
 
 
 if __name__ == "__main__":
-    main()
-    # test()
+    # main()
+    test()

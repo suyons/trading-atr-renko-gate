@@ -5,7 +5,7 @@ import requests
 from config.logger_config import log
 
 
-class DiscordRestClient:
+class DiscordClient:
     def __init__(self, url):
         self.url = url
         self._log_buffer = ""
