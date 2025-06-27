@@ -6,32 +6,36 @@ from config.logger_config import log
 
 
 class DiscordClient:
-    def __init__(self, url):
+    def __init__(self, url: str):
         self.url = url
         self._log_buffer = ""
 
     def _send_message(self, message: str):
-        if not self.url:
-            log.warning("[Discord] No webhook URL configured. Skipping notification.")
-            return
         try:
             response = requests.post(self.url, json={"content": message})
             if response.status_code == 204:
-                log.info("[Discord] Notification sent successfully.")
+                return
             else:
                 log.error(
                     f"[Discord] Failed to send notification. Status: {response.status_code}"
                 )
         except Exception as e:
-            log.error(f"[Discord Error] An error occurred: {e}")
+            log.error(f"[Discord] An error occurred: {e}")
 
-    def push_log_buffer(self, message: str):
+    def push_log_buffer(self, message: str, log_level: str = "info"):
         """
         Buffers log messages to be sent later.
         """
-        log.info(message)
+        if log_level.lower() == "info":
+            log.info(message)
+        elif log_level.lower() == "warning":
+            log.warning(message)
+        elif log_level.lower() == "error":
+            log.error(message)
+        else:
+            log.debug(message)
         now = datetime.now().strftime("%H:%M:%S")
-        self._log_buffer += f"{now} - {message}\n"
+        self._log_buffer += f"{now} - {log_level.upper()} - {message}\n"
 
     def flush_log_buffer(self):
         """
@@ -44,21 +48,15 @@ class DiscordClient:
             log.info("[Discord] No messages to send in the buffer.")
 
     def send_image(self, buffer):
-        if not self.url:
-            log.warning(
-                "[Discord] No webhook URL configured. Skipping image notification."
-            )
-            return
         files = {"file": ("image.jpg", buffer, "image/jpeg")}
         try:
             response = requests.post(self.url, files=files)
             if response.status_code == 200:
-                log.info("[Discord] Renko plot sent successfully.")
+                return
             else:
                 log.error(
-                    f"[Discord] Failed to send plot. Status: {response.status_code}"
+                    f"[Discord] Failed to send image. Status: {response.status_code}"
                 )
-            return response
         except Exception as e:
-            log.error(f"[Discord Error] An error occurred while sending image: {e}")
+            log.error(f"[Discord] An error occurred while sending image: {e}")
             return None
