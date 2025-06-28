@@ -6,6 +6,7 @@ import numpy as np
 import talib
 
 from gate_api.models.futures_candlestick import FuturesCandlestick
+from gate_api.models.futures_ticker import FuturesTicker
 
 from config.logger_config import log
 from service.discord_client import DiscordClient
@@ -181,7 +182,7 @@ class RenkoCalculator:
                 renko_bricks = renko_bricks[-200:]
             symbol_data["renko_list"] = renko_bricks
 
-    def handle_new_ticker_data(self, ticker_data_list: list[dict]):
+    def handle_new_ticker_data(self, ticker_data_list: list[FuturesTicker]):
         """
         Processes new incoming ticker data, updates renko_list in self.symbol_data_list.
         Only processes symbols present in self.symbol_data_list.
@@ -189,17 +190,23 @@ class RenkoCalculator:
         If a buy/sell signal (brick direction changes), sends order via order_handler.
         """
         # 1. validate ticker_data
-        if not ticker_data_list or not isinstance(ticker_data_list, list):
+        if (
+            not ticker_data_list
+            or not isinstance(ticker_data_list, list)
+            or not isinstance(ticker_data_list[0], FuturesTicker)
+        ):
+            # If ticker_data_list is empty or not a list
             log.warning("[Renko] Invalid ticker_data_list format.")
             return
 
         # 2. filter ticker_data to only include valid symbols
         filtered_ticker_data_list = [
-            ticker_data
+            {
+                "contract": ticker_data.contract,
+                "last": ticker_data.last,
+            }
             for ticker_data in ticker_data_list
-            if isinstance(ticker_data, dict)
-            and ticker_data.get("contract") in self.symbol_list
-            and ticker_data.get("last") is not None
+            if ticker_data.contract in self.symbol_list
         ]
 
         for filtered_ticker_data in filtered_ticker_data_list:

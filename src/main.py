@@ -5,6 +5,7 @@ from sched import scheduler
 from dotenv import load_dotenv
 from gate_api import Configuration, ApiClient, FuturesApi
 from gate_api.models.futures_candlestick import FuturesCandlestick
+from gate_api.models.futures_ticker import FuturesTicker
 
 from service.discord_client import DiscordClient
 from service.order_handler import OrderHandler
@@ -82,8 +83,8 @@ def main():
     initialize_historical_data()
 
     def fetch_then_process_ticker_data_scheduled():
-        ticker_data = gate_futures_api.list_futures_tickers(settle="usdt")
-        renko_calculator.handle_new_ticker_data(ticker_data)
+        ticker_data_list: FuturesTicker = gate_futures_api.list_futures_tickers(settle="usdt")
+        renko_calculator.handle_new_ticker_data(ticker_data_list)
         data_stream_scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
 
     data_stream_scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
