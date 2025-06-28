@@ -83,7 +83,9 @@ def main():
     initialize_historical_data()
 
     def fetch_then_process_ticker_data_scheduled():
-        ticker_data_list: FuturesTicker = gate_futures_api.list_futures_tickers(settle="usdt")
+        ticker_data_list: FuturesTicker = gate_futures_api.list_futures_tickers(
+            settle="usdt"
+        )
         renko_calculator.handle_new_ticker_data(ticker_data_list)
         data_stream_scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
 

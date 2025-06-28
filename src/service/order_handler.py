@@ -98,10 +98,19 @@ class OrderHandler:
 
     def _get_current_position_size(self, symbol: str) -> int:
         try:
-            position: Position = self.gate_futures_api.get_position(
-                settle="usdt", contract=symbol
+            current_position_list: list[Position] = (
+                self.gate_futures_api.list_positions(settle="usdt", holding=True)
             )
-            return position.size
+            current_position = next(
+                (
+                    p
+                    for p in current_position_list
+                    if getattr(p, "contract", None) == symbol
+                ),
+                None,
+            )
+            current_position_size = current_position.size if current_position else 0
+            return current_position_size
         except Exception as e:
             log.error(f"[Order] Failed to get position for {symbol}: {e}")
             raise e
