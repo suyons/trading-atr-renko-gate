@@ -289,10 +289,9 @@ class RenkoCalculator:
                         side = "buy" if direction == "up" else "sell"
                         try:
                             self.send_renko_plot_to_discord(symbol)
-                            self.order_handler.place_market_close_order_if_position_opened(
-                                symbol
+                            self.order_handler.place_market_open_order_after_close(
+                                symbol, side
                             )
-                            self.order_handler.place_market_open_order(symbol, side)
                         except Exception as e:
                             log.error(f"[Renko] Order error for {symbol}: {e}")
                     last_brick_direction = direction
