@@ -2,7 +2,6 @@ from gate_api import FuturesApi, FuturesOrder
 from gate_api.models.contract import Contract
 from gate_api.models.futures_account import FuturesAccount
 from gate_api.models.position import Position
-from requests.exceptions import HTTPError
 
 from config.logger_config import log
 from service.discord_client import DiscordClient
@@ -52,6 +51,9 @@ class OrderHandler:
             self.account_total_balance = float(futures_account.total) + float(
                 futures_account.unrealised_pnl
             )
+            log.info(
+                f"[Order] Account total balance set: {self.account_total_balance:.2f} USDT"
+            )
         except Exception as e:
             log.error(f"[Order] Failed to get account balance: {e}")
             raise e
@@ -85,8 +87,9 @@ class OrderHandler:
                     existing.update(symbol_data)
                 else:
                     self.symbol_position_list.append(symbol_data)
+                log.info(f"[Order] Set symbol data for {symbol}: {symbol_data}")
             except Exception as e:
-                log.error(f"[Order] Failed to get quanto multiplier for {symbol}: {e}")
+                log.error(f"[Order] Failed to get symbol data for {symbol}: {e}")
                 raise e
 
     def set_account_data_to_position_list(self):
@@ -135,6 +138,8 @@ class OrderHandler:
                         "unrealised_pnl": unrealised_pnl,
                     }
                 )
+
+                log.info(f"[Order] Updated position for {symbol}: {symbol_data}")
             except Exception as e:
                 log.error(f"[Order] Failed to get position for {symbol}: {e}")
                 raise e
@@ -171,7 +176,7 @@ class OrderHandler:
                 f"[Order] Open {side} {symbol}, price: {order_response.fill_price}, size: {order_size_in_usdt:.2f}, balance: {self.account_total_balance:.2f}",
                 "info",
             )
-        except HTTPError as e:
+        except Exception as e:
             self.discord_client.push_log_buffer(e, "error")
             raise e
         finally:
@@ -204,7 +209,7 @@ class OrderHandler:
                 "info",
             )
             self.set_account_data_to_position_list()
-        except HTTPError as e:
+        except Exception as e:
             self.discord_client.push_log_buffer(e)
             raise e
         finally:
