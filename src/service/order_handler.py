@@ -145,7 +145,8 @@ class OrderHandler:
         )
         if symbol_position.get("current_position_side") == side:
             return
-        self.place_market_close_order(symbol=symbol)
+        if symbol_position.get("current_position_size_in_quantity", 0) != 0:
+            self.place_market_close_order(symbol=symbol)
         order_size_in_quantity = (
             symbol_position.get("order_size_in_quantity", 0) if symbol_position else 0
         )
@@ -159,9 +160,7 @@ class OrderHandler:
             order_size_in_quantity = abs(order_size_in_quantity)
             order_size_in_usdt = abs(order_size_in_usdt)
         else:
-            raise ValueError(
-                f"Invalid side: {side}. Must be 'buy' or 'sell'."
-            )
+            raise ValueError(f"Invalid side: {side}. Must be 'buy' or 'sell'.")
         futures_order = FuturesOrder(
             contract=symbol,
             size=order_size_in_quantity,

@@ -178,6 +178,7 @@ class RenkoCalculator:
                         renko_bricks.append(new_brick)
                         last_renko_close = brick_close
                         first_brick_size = renko_brick_size
+            direction = renko_bricks[-1]["direction"]
             side = "buy" if direction == "up" else "sell"
             self.order_handler.place_market_open_order_after_close(
                 symbol_data.get("symbol"), side
