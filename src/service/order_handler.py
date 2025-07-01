@@ -48,12 +48,7 @@ class OrderHandler:
             futures_account: FuturesAccount = (
                 self.gate_futures_api.list_futures_accounts("usdt")
             )
-            self.account_total_balance = float(futures_account.total) + float(
-                futures_account.unrealised_pnl
-            )
-            log.info(
-                f"[Order] Account total balance set: {self.account_total_balance:.2f} USDT"
-            )
+            self.account_total_balance = float(futures_account.total)
         except Exception as e:
             log.error(f"[Order] Failed to get account balance: {e}")
             raise e
@@ -87,7 +82,6 @@ class OrderHandler:
                     existing.update(symbol_data)
                 else:
                     self.symbol_position_list.append(symbol_data)
-                log.info(f"[Order] Set symbol data for {symbol}: {symbol_data}")
             except Exception as e:
                 log.error(f"[Order] Failed to get symbol data for {symbol}: {e}")
                 raise e
@@ -138,8 +132,6 @@ class OrderHandler:
                         "unrealised_pnl": unrealised_pnl,
                     }
                 )
-
-                log.info(f"[Order] Updated position for {symbol}: {symbol_data}")
             except Exception as e:
                 log.error(f"[Order] Failed to get position for {symbol}: {e}")
                 raise e
@@ -160,6 +152,16 @@ class OrderHandler:
         order_size_in_usdt = (
             symbol_position.get("order_size_in_usdt", 0) if symbol_position else 0
         )
+        if side == "sell":
+            order_size_in_quantity = -abs(order_size_in_quantity)
+            order_size_in_usdt = -abs(order_size_in_usdt)
+        elif side == "buy":
+            order_size_in_quantity = abs(order_size_in_quantity)
+            order_size_in_usdt = abs(order_size_in_usdt)
+        else:
+            raise ValueError(
+                f"Invalid side: {side}. Must be 'buy' or 'sell'."
+            )
         futures_order = FuturesOrder(
             contract=symbol,
             size=order_size_in_quantity,
