@@ -9,15 +9,8 @@ export TZ=UTC
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Log file
-LOG_FILE="$SCRIPT_DIR/logs/trading_bot_runner.log"
-
-# Create logs directory if it doesn't exist
-mkdir -p "$SCRIPT_DIR/logs"
-
 # Function to log messages
 log_message() {
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC'): $1" >> "$LOG_FILE"
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC'): $1"
 }
 
@@ -48,7 +41,7 @@ fi
 log_message "Activated conda environment 'trading'"
 
 # Start the trading bot in the background
-nohup python src/main.py >> "$LOG_FILE" 2>&1 &
+python src/main.py
 BOT_PID=$!
 
 if [ $? -eq 0 ]; then
