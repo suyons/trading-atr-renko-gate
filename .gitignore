@@ -206,4 +206,7 @@ pyrightconfig.json
 # Windows command files
 *.cmd
 
+# PID files
+*.pid
+
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,jupyternotebooks
