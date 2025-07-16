@@ -29,7 +29,7 @@ fi
 
 # Add new cron job to run every 4 hours in UTC
 echo "CRON_TZ=UTC" > "$TEMP_CRON_FILE"
-echo "*/1 * * * * $RUNNER_SCRIPT" >> "$TEMP_CRON_FILE"
+echo "0 */4 * * * $RUNNER_SCRIPT" >> "$TEMP_CRON_FILE"
 
 # Install the new crontab
 crontab "$TEMP_CRON_FILE"
