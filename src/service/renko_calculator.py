@@ -7,7 +7,7 @@ import talib
 
 from gate_api.models.futures_candlestick import FuturesCandlestick
 from gate_api.models.futures_ticker import FuturesTicker
-
+from backtest.simulated_order_handler import SimulatedOrderHandler
 from config.logger_config import log
 from service.discord_client import DiscordClient
 from service.order_handler import OrderHandler
@@ -25,7 +25,7 @@ class RenkoCalculator:
         atr_period: int,
         ohlcv_count: int,
         discord_client: DiscordClient,
-        order_handler: OrderHandler = None,
+        order_handler: OrderHandler | SimulatedOrderHandler = None,
     ):
         self.symbol_data_list = []
         self.symbol_list = symbol_list
@@ -99,9 +99,10 @@ class RenkoCalculator:
 
             if atr_values[-1] is not None and not np.isnan(atr_values[-1]):
                 symbol_data["renko_brick_size"] = float(atr_values[-1])
-                log.info(
+                self.discord_client.push_log_buffer(
                     f"[Renko] {symbol_data.get('symbol')} brick_size: {symbol_data['renko_brick_size']:.4g}"
                 )
+                self.discord_client.flush_log_buffer()
             else:
                 symbol_data["renko_brick_size"] = None
 
@@ -309,6 +310,8 @@ class RenkoCalculator:
                 symbol_data["renko_list"] = renko_bricks[-200:]
 
     def send_renko_plot_to_discord(self, symbol: str):
+        if not self.discord_client:
+            return
         """
         Plots the historical Renko bricks for the given symbol and sends the image to Discord.
         """
