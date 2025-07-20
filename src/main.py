@@ -1,12 +1,13 @@
 import os
 import time
-from sched import scheduler
+import schedule
 
 from dotenv import load_dotenv
 from gate_api import Configuration, ApiClient, FuturesApi
 from gate_api.models.futures_candlestick import FuturesCandlestick
 from gate_api.models.futures_ticker import FuturesTicker
 
+from config.logger_config import log
 from service.discord_client import DiscordClient
 from service.order_handler import OrderHandler
 from service.renko_calculator import RenkoCalculator
@@ -52,7 +53,6 @@ renko_calculator = RenkoCalculator(
     discord_client=discord_client,
     order_handler=order_handler,
 )
-data_stream_scheduler = scheduler(time.time, time.sleep)
 
 
 def initialize_historical_data():
@@ -79,18 +79,25 @@ def initialize_historical_data():
         renko_calculator.send_renko_plot_to_discord(symbol=symbol)
 
 
-def main():
-    initialize_historical_data()
-
-    def fetch_then_process_ticker_data_scheduled():
+def fetch_then_process_ticker_data_scheduled():
+    try:
         ticker_data_list: FuturesTicker = gate_futures_api.list_futures_tickers(
             settle="usdt"
         )
         renko_calculator.handle_new_ticker_data(ticker_data_list)
-        data_stream_scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
+    except Exception as e:
+        log.error(f"[Main] Error fetching ticker data: {e}")
+        time.sleep(5)
+        fetch_then_process_ticker_data_scheduled()
 
-    data_stream_scheduler.enter(1, 1, fetch_then_process_ticker_data_scheduled)
-    data_stream_scheduler.run()
+
+def main():
+    initialize_historical_data()
+    schedule.every(1).seconds.do(fetch_then_process_ticker_data_scheduled)
+    schedule.every().saturday.at("09:00").do(initialize_historical_data)
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 
 def test():
