@@ -7,7 +7,6 @@ import talib
 
 from gate_api.models.futures_candlestick import FuturesCandlestick
 from gate_api.models.futures_ticker import FuturesTicker
-from backtest.simulated_order_handler import SimulatedOrderHandler
 from config.logger_config import log
 from service.discord_client import DiscordClient
 from service.order_handler import OrderHandler
@@ -25,7 +24,7 @@ class RenkoCalculator:
         atr_period: int,
         ohlcv_count: int,
         discord_client: DiscordClient,
-        order_handler: OrderHandler | SimulatedOrderHandler = None,
+        order_handler: OrderHandler = None,
     ):
         self.symbol_data_list = []
         self.symbol_list = symbol_list
