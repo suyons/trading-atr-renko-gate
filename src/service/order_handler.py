@@ -48,7 +48,9 @@ class OrderHandler:
             futures_account: FuturesAccount = (
                 self.gate_futures_api.list_futures_accounts("usdt")
             )
-            self.account_total_balance = float(futures_account.available)
+            self.account_total_balance = float(futures_account.cross_available) + float(
+                futures_account.cross_initial_margin
+            )
         except Exception as e:
             log.error(f"[Order] Failed to get account balance: {e}")
             raise e
