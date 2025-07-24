@@ -217,3 +217,27 @@ class OrderHandler:
             raise e
         finally:
             self.discord_client.flush_log_buffer()
+
+    def send_symbol_position_list_to_discord(self):
+        self.set_account_total_balance()
+        self.set_symbol_data_to_position_list()
+        self.set_account_data_to_position_list()
+        for symbol_data in self.symbol_position_list:
+            if symbol_data.get("current_position_size_in_quantity", 0) == 0:
+                continue
+            symbol = symbol_data["symbol"]
+            position_side = symbol_data.get("current_position_side", "none")
+            unrealised_pnl = symbol_data.get("unrealised_pnl", 0.0)
+            self.discord_client.push_log_buffer(
+                f"[Order] {symbol} - Side: {position_side}, "
+                f"Last: {symbol_data['last_price']:.2f}, "
+                f"Size: {symbol_data['current_position_size_in_usdt']}, "
+                f"PnL: {unrealised_pnl:.2f}",
+                "info",
+            )
+        self.discord_client.push_log_buffer(
+            f"[Order] Total - Balance: {self.account_total_balance:.2f}, "
+            f"PnL: {sum(item['unrealised_pnl'] for item in self.symbol_position_list):.2f}",
+            "info",
+        )
+        self.discord_client.flush_log_buffer()

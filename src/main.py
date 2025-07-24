@@ -98,6 +98,9 @@ def fetch_then_process_ticker_data():
 def main():
     initialize_historical_data()
     schedule.every(1).seconds.do(fetch_then_process_ticker_data)
+    schedule.every().hour.at(":00").do(
+        order_handler.send_symbol_position_list_to_discord
+    )
     schedule.every().saturday.at("09:00").do(initialize_historical_data)
     while True:
         schedule.run_pending()
