@@ -89,6 +89,7 @@ class OrderHandler:
                 raise e
 
     def set_account_data_to_position_list(self):
+        self.set_account_total_balance()
         current_position_list: list[Position] = self.gate_futures_api.list_positions(
             settle="usdt", holding=True
         )
@@ -219,7 +220,6 @@ class OrderHandler:
             self.discord_client.flush_log_buffer()
 
     def send_symbol_position_list_to_discord(self):
-        self.set_account_total_balance()
         self.set_symbol_data_to_position_list()
         self.set_account_data_to_position_list()
         for symbol_data in self.symbol_position_list:
