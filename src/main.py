@@ -32,7 +32,7 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # Dependencies initialization
 gate_configuration = Configuration(
-    host=GATE_URL_HOST_TEST,
+    host=GATE_URL_HOST_LIVE,
     key=API_KEY,
     secret=SECRET_KEY,
 )
@@ -79,7 +79,7 @@ def initialize_historical_data():
         renko_calculator.send_renko_plot_to_discord(symbol=symbol)
 
 
-def fetch_then_process_ticker_data_scheduled():
+def fetch_then_process_ticker_data():
     try:
         ticker_data_list: FuturesTicker = gate_futures_api.list_futures_tickers(
             settle="usdt"
@@ -88,12 +88,12 @@ def fetch_then_process_ticker_data_scheduled():
     except Exception as e:
         log.error(f"[Main] Error fetching ticker data: {e}")
         time.sleep(5)
-        fetch_then_process_ticker_data_scheduled()
+        fetch_then_process_ticker_data()
 
 
 def main():
     initialize_historical_data()
-    schedule.every(1).seconds.do(fetch_then_process_ticker_data_scheduled)
+    schedule.every(1).seconds.do(fetch_then_process_ticker_data)
     schedule.every().saturday.at("09:00").do(initialize_historical_data)
     while True:
         schedule.run_pending()

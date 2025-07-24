@@ -43,12 +43,12 @@ class OrderHandler:
         self.set_symbol_data_to_position_list()
         self.set_account_data_to_position_list()
 
-    def set_account_total_balance(self) -> float:
+    def set_account_total_balance(self):
         try:
             futures_account: FuturesAccount = (
                 self.gate_futures_api.list_futures_accounts("usdt")
             )
-            self.account_total_balance = float(futures_account.total)
+            self.account_total_balance = float(futures_account.available)
         except Exception as e:
             log.error(f"[Order] Failed to get account balance: {e}")
             raise e
