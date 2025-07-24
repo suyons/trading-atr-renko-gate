@@ -231,7 +231,7 @@ class OrderHandler:
             self.discord_client.push_log_buffer(
                 f"[Order] {symbol} - Side: {position_side}, "
                 f"Last: {symbol_data['last_price']:.2f}, "
-                f"Size: {symbol_data['current_position_size_in_usdt']}, "
+                f"Size: {symbol_data['current_position_size_in_usdt']:.2f}, "
                 f"PnL: {unrealised_pnl:.2f}",
                 "info",
             )
