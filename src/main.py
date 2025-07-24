@@ -15,11 +15,15 @@ from service.renko_calculator import RenkoCalculator
 # Load environment variables from .env file
 load_dotenv()
 
-GATE_URL_HOST_LIVE = os.getenv("GATE_URL_HOST_LIVE")
-GATE_URL_HOST_TEST = os.getenv("GATE_URL_HOST_TEST")
+TRADING_MODE = os.getenv("GATE_TRADING_MODE").upper()
+GATE_URL_HOST = (
+    os.getenv("GATE_URL_HOST_LIVE")
+    if TRADING_MODE == "LIVE"
+    else os.getenv("GATE_URL_HOST_TEST")
+)
 
 API_KEY = os.getenv("API_KEY")
-SECRET_KEY = os.getenv("SECRET_KEY")
+API_SECRET = os.getenv("API_SECRET")
 
 SYMBOL_LIST = os.getenv("SYMBOL_LIST").split(",")
 OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
@@ -32,9 +36,9 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # Dependencies initialization
 gate_configuration = Configuration(
-    host=GATE_URL_HOST_LIVE,
+    host=GATE_URL_HOST,
     key=API_KEY,
-    secret=SECRET_KEY,
+    secret=API_SECRET,
 )
 gate_client = ApiClient(configuration=gate_configuration)
 gate_futures_api = FuturesApi(api_client=gate_client)
