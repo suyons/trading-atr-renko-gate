@@ -1,6 +1,6 @@
-from gate_api import FuturesApi, FuturesOrder
+from gate_api import FuturesApi, FuturesOrder, UnifiedApi
 from gate_api.models.contract import Contract
-from gate_api.models.futures_account import FuturesAccount
+from gate_api.models.unified_account import UnifiedAccount
 from gate_api.models.position import Position
 
 from config.logger_config import log
@@ -11,11 +11,13 @@ class OrderHandler:
     def __init__(
         self,
         gate_futures_api: FuturesApi,
+        gate_unified_api: UnifiedApi,
         discord_client: DiscordClient,
         symbol_list: list[str],
         leverage: int,
     ):
         self.gate_futures_api = gate_futures_api
+        self.gate_unified_api = gate_unified_api
         self.discord_client = discord_client
         self.symbol_list = symbol_list
         self.leverage = leverage
@@ -45,12 +47,10 @@ class OrderHandler:
 
     def set_account_total_balance(self):
         try:
-            futures_account: FuturesAccount = (
-                self.gate_futures_api.list_futures_accounts("usdt")
+            unified_account: UnifiedAccount = (
+                self.gate_unified_api.list_unified_accounts()
             )
-            self.account_total_balance = float(futures_account.cross_available) + float(
-                futures_account.cross_initial_margin
-            )
+            self.account_total_balance = float(unified_account.unified_account_total)
         except Exception as e:
             log.error(f"[Order] Failed to get account balance: {e}")
             raise e
@@ -89,7 +89,6 @@ class OrderHandler:
                 raise e
 
     def set_account_data_to_position_list(self):
-        self.set_account_total_balance()
         current_position_list: list[Position] = self.gate_futures_api.list_positions(
             settle="usdt", holding=True
         )
@@ -140,6 +139,7 @@ class OrderHandler:
                 raise e
 
     def place_market_open_order_after_close(self, symbol: str, side: str):
+        self.set_account_total_balance()
         self.set_symbol_data_to_position_list()
         self.set_account_data_to_position_list()
         symbol_position = next(
@@ -175,7 +175,6 @@ class OrderHandler:
                 settle="usdt",
                 futures_order=futures_order,
             )
-            self.set_account_total_balance()
             self.discord_client.push_log_buffer(
                 f"[Order] Open {side} {symbol}, price: {order_response.fill_price}, size: {order_size_in_usdt:.2f}, balance: {self.account_total_balance:.2f}",
                 "info",

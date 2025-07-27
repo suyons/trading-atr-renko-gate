@@ -3,7 +3,7 @@ import time
 import schedule
 
 from dotenv import load_dotenv
-from gate_api import Configuration, ApiClient, FuturesApi
+from gate_api import Configuration, ApiClient, FuturesApi, UnifiedApi
 from gate_api.models.futures_candlestick import FuturesCandlestick
 from gate_api.models.futures_ticker import FuturesTicker
 
@@ -21,7 +21,6 @@ GATE_URL_HOST = (
     if TRADING_MODE == "LIVE"
     else os.getenv("GATE_URL_HOST_TEST")
 )
-
 API_KEY = (
     os.getenv("API_KEY_LIVE") if TRADING_MODE == "LIVE" else os.getenv("API_KEY_TEST")
 )
@@ -30,15 +29,18 @@ API_SECRET = (
     if TRADING_MODE == "LIVE"
     else os.getenv("API_SECRET_TEST")
 )
+DISCORD_WEBHOOK_URL = (
+    os.getenv("DISCORD_WEBHOOK_URL_LIVE")
+    if TRADING_MODE == "LIVE"
+    else os.getenv("DISCORD_WEBHOOK_URL_TEST")
+)
 
 SYMBOL_LIST = os.getenv("SYMBOL_LIST").split(",")
 OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
 ATR_PERIOD = int(os.getenv("ATR_PERIOD"))
 OHLCV_COUNT = int(os.getenv("OHLCV_COUNT"))
-
 LEVERAGE = int(os.getenv("LEVERAGE"))
 
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # Dependencies initialization
 gate_configuration = Configuration(
@@ -48,9 +50,11 @@ gate_configuration = Configuration(
 )
 gate_client = ApiClient(configuration=gate_configuration)
 gate_futures_api = FuturesApi(api_client=gate_client)
+gate_unified_api = UnifiedApi(api_client=gate_client)
 discord_client = DiscordClient(url=DISCORD_WEBHOOK_URL)
 order_handler = OrderHandler(
     gate_futures_api=gate_futures_api,
+    gate_unified_api=gate_unified_api,
     discord_client=discord_client,
     symbol_list=SYMBOL_LIST,
     leverage=LEVERAGE,
@@ -82,7 +86,7 @@ def initialize_historical_data():
     renko_calculator.set_brick_size_into_symbol_data_list()
     renko_calculator.set_renko_list_into_symbol_data_list()
     discord_client.push_log_buffer(
-        f"[Main] Historial data loaded on {len(SYMBOL_LIST)} symbols: {str(SYMBOL_LIST)}"
+        f"[Main] Historical data loaded on {len(SYMBOL_LIST)} symbols: {str(SYMBOL_LIST)}"
     )
     discord_client.flush_log_buffer()
     for symbol in SYMBOL_LIST:
