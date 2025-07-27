@@ -22,8 +22,14 @@ GATE_URL_HOST = (
     else os.getenv("GATE_URL_HOST_TEST")
 )
 
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
+API_KEY = (
+    os.getenv("API_KEY_LIVE") if TRADING_MODE == "LIVE" else os.getenv("API_KEY_TEST")
+)
+API_SECRET = (
+    os.getenv("API_SECRET_LIVE")
+    if TRADING_MODE == "LIVE"
+    else os.getenv("API_SECRET_TEST")
+)
 
 SYMBOL_LIST = os.getenv("SYMBOL_LIST").split(",")
 OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
