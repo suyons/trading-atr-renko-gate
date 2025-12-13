@@ -329,6 +329,10 @@ class RenkoCalculator:
             # Keep only last 200 bricks
             if len(renko_bricks) > 200:
                 symbol_data["renko_list"] = renko_bricks[-200:]
+        
+        # Update unrealised PnL for all symbols after processing new ticker data
+        if self.order_handler and hasattr(self.order_handler, 'update_unrealised_pnl'):
+            self.order_handler.update_unrealised_pnl()
 
     def _call_ollama_for_signal_filtering(self, symbol: str, renko_bricks: list) -> bool:
         """

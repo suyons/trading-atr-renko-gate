@@ -36,17 +36,21 @@ class SimulatedOrderHandler:
         """
 
     def set_symbol_position_list_last_price(self, symbol: str, last_price: float):
+        found = False
         for item in self.symbol_position_list:
             if item["symbol"] == symbol:
                 item["last_price"] = last_price
-                return
-        # If symbol not found, append a new entry with minimal required fields
-        self.symbol_position_list.append(
-            {
-                "symbol": symbol,
-                "last_price": last_price,
-            }
-        )
+                found = True
+                break
+        if not found:
+            # If symbol not found, append a new entry with minimal required fields
+            self.symbol_position_list.append(
+                {
+                    "symbol": symbol,
+                    "last_price": last_price,
+                }
+            )
+        self.update_unrealised_pnl() # Call update after all price setting and appending
 
     def set_symbol_data_to_position_list(self):
         for symbol in self.symbol_list:
@@ -64,7 +68,8 @@ class SimulatedOrderHandler:
                     ),
                     None,
                 )
-                minimum_position_size_in_usdt = float(existing["last_price"]) * float(
+                last_price = float(contract_info.last_price)
+                minimum_position_size_in_usdt = last_price * float(
                     contract_info.quanto_multiplier
                 )
                 order_size_in_quantity = int(
@@ -73,9 +78,10 @@ class SimulatedOrderHandler:
                     / minimum_position_size_in_usdt
                     / len(self.symbol_list)
                 )
-                symbol_data = {
+                
+                new_symbol_data = {
                     "symbol": symbol,
-                    "last_price": existing["last_price"],
+                    "last_price": last_price,
                     "minimum_position_size_in_quantity": float(
                         contract_info.quanto_multiplier
                     ),
@@ -86,14 +92,33 @@ class SimulatedOrderHandler:
                         * self.leverage
                         / len(self.symbol_list)
                     ),
+                    "current_position_size_in_quantity": 0,
+                    "current_position_size_in_usdt": 0.0,
+                    "current_position_side": None,
+                    "unrealised_pnl": 0.0,
+                    "entry_price": 0.0, # Initialize entry price
                 }
                 if existing:
-                    existing.update(symbol_data)
+                    existing.update(new_symbol_data)
                 else:
-                    self.symbol_position_list.append(symbol_data)
+                    self.symbol_position_list.append(new_symbol_data)
             except Exception as e:
                 log.error(f"[Order] Failed to get symbol data for {symbol}: {e}")
                 raise e
+
+    def update_unrealised_pnl(self):
+        for symbol_position in self.symbol_position_list:
+            if symbol_position.get("current_position_size_in_quantity", 0) != 0:
+                entry_price = symbol_position.get("entry_price", 0.0)
+                last_price = symbol_position.get("last_price", 0.0)
+                quantity = symbol_position.get("current_position_size_in_quantity", 0)
+                contract_size = symbol_position.get("minimum_position_size_in_quantity", 0.0)
+                
+                # Calculate unrealised PnL
+                symbol_position["unrealised_pnl"] = (last_price - entry_price) * quantity * contract_size
+            else:
+                symbol_position["unrealised_pnl"] = 0.0
+
 
     def place_market_open_order_after_close(self, symbol: str, side: str):
         self.set_symbol_data_to_position_list()
@@ -123,7 +148,6 @@ class SimulatedOrderHandler:
         symbol_position["current_position_size_in_quantity"] = order_size_in_quantity
         symbol_position["current_position_size_in_usdt"] = order_size_in_usdt
         symbol_position["entry_price"] = symbol_position.get("last_price")
-        symbol_position["unrealised_pnl"] = 0.0
         self.account_total_balance -= abs(order_size_in_usdt) * self.taker_fee_rate
         if self.account_total_balance < 50:
             log.info("Account balance below $50, stopping backtest.")
@@ -159,7 +183,8 @@ class SimulatedOrderHandler:
         log.info(
             f"[Order] Closed {symbol_position.get('current_position_side')} {symbol}, entry_price: {entry_price}, last_price: {last_price}, quantity: {quantity}, size: {symbol_position.get('current_position_size_in_usdt'):.2f}, balance: {self.account_total_balance:.2f}, PnL: {symbol_position.get('unrealised_pnl'):.2f}"
         )
+        symbol_position["unrealised_pnl"] = 0.0
         symbol_position["current_position_side"] = None
         symbol_position["current_position_size_in_quantity"] = 0
         symbol_position["current_position_size_in_usdt"] = 0
-        symbol_position["unrealised_pnl"] = 0.0
+
