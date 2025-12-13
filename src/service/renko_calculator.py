@@ -371,9 +371,10 @@ class RenkoCalculator:
         A false signal due to sideways movement typically involves many alternating up and down bricks within a short period, 
         without a clear sustained trend in one direction.
 
-        Respond with only "True" or "False".
+        Respond with only "True" if the signal is credible and an order should be opened. Respond with only "False" if it's a false signal and the order should NOT be opened.
         """
 
+        log.info(f"[Renko] Sending Prompt:\n\n{prompt}\n")
         try:
             response = requests.post(
                 self.ollama_url,
@@ -386,13 +387,13 @@ class RenkoCalculator:
             )
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             result = response.json()
-            
             # Assuming the LLM's response is directly in the 'response' field and can be parsed as a boolean string
             llm_decision = result.get("response", "").strip().lower()
-            if "true" in llm_decision:
+            log.info(f"[Renko] Ollama Response for {symbol}: {llm_decision}")
+            if "false" in llm_decision: # If Ollama says "false", it's a false signal, so skip order
                 log.info(f"[Renko] Ollama filtered a potential false signal for {symbol}.")
                 return True
-            elif "false" in llm_decision:
+            elif "true" in llm_decision: # If Ollama says "true", it's a credible signal, so proceed with order
                 return False
             else:
                 log.warning(f"[Renko] Ollama returned unparseable response for {symbol}: {llm_decision}")
