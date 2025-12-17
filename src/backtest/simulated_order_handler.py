@@ -50,7 +50,7 @@ class SimulatedOrderHandler:
                     "last_price": last_price,
                 }
             )
-        self.update_unrealised_pnl() # Call update after all price setting and appending
+        self.update_unrealised_pnl()  # Call update after all price setting and appending
 
     def set_symbol_data_to_position_list(self):
         for symbol in self.symbol_list:
@@ -78,7 +78,7 @@ class SimulatedOrderHandler:
                     / minimum_position_size_in_usdt
                     / len(self.symbol_list)
                 )
-                
+
                 new_symbol_data = {
                     "symbol": symbol,
                     "last_price": last_price,
@@ -96,7 +96,7 @@ class SimulatedOrderHandler:
                     "current_position_size_in_usdt": 0.0,
                     "current_position_side": None,
                     "unrealised_pnl": 0.0,
-                    "entry_price": 0.0, # Initialize entry price
+                    "entry_price": 0.0,  # Initialize entry price
                 }
                 if existing:
                     existing.update(new_symbol_data)
@@ -112,13 +112,16 @@ class SimulatedOrderHandler:
                 entry_price = symbol_position.get("entry_price", 0.0)
                 last_price = symbol_position.get("last_price", 0.0)
                 quantity = symbol_position.get("current_position_size_in_quantity", 0)
-                contract_size = symbol_position.get("minimum_position_size_in_quantity", 0.0)
-                
+                contract_size = symbol_position.get(
+                    "minimum_position_size_in_quantity", 0.0
+                )
+
                 # Calculate unrealised PnL
-                symbol_position["unrealised_pnl"] = (last_price - entry_price) * quantity * contract_size
+                symbol_position["unrealised_pnl"] = (
+                    (last_price - entry_price) * quantity * contract_size
+                )
             else:
                 symbol_position["unrealised_pnl"] = 0.0
-
 
     def place_market_open_order_after_close(self, symbol: str, side: str):
         self.set_symbol_data_to_position_list()
@@ -166,13 +169,15 @@ class SimulatedOrderHandler:
             or symbol_position.get("current_position_size_in_quantity", 0) == 0
         ):
             return
-        
+
         entry_price = symbol_position.get("entry_price", 0.0)
         last_price = symbol_position.get("last_price", 0.0)
         quantity = symbol_position.get("current_position_size_in_quantity", 0)
         contract_size = symbol_position.get("minimum_position_size_in_quantity", 0.0)
-        symbol_position["unrealised_pnl"] = (last_price - entry_price) * quantity * contract_size
-        
+        symbol_position["unrealised_pnl"] = (
+            (last_price - entry_price) * quantity * contract_size
+        )
+
         self.account_total_balance += symbol_position.get("unrealised_pnl", 0.0) - (
             abs(symbol_position.get("current_position_size_in_usdt", 0.0))
             * self.taker_fee_rate
@@ -187,4 +192,3 @@ class SimulatedOrderHandler:
         symbol_position["current_position_side"] = None
         symbol_position["current_position_size_in_quantity"] = 0
         symbol_position["current_position_size_in_usdt"] = 0
-

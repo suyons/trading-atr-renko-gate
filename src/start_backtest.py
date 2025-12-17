@@ -18,6 +18,8 @@ OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
 ATR_PERIOD = int(os.getenv("ATR_PERIOD"))
 OHLCV_COUNT = int(os.getenv("OHLCV_COUNT"))
 LEVERAGE = int(os.getenv("LEVERAGE"))
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL")
+OLLAMA_URL = os.getenv("OLLAMA_URL")
 
 
 log.info("Starting backtest...")
@@ -39,18 +41,20 @@ renko_calculator = RenkoCalculator(
     ohlcv_count=OHLCV_COUNT,
     discord_client=None,
     order_handler=simulated_order_handler,
+    ollama_model=OLLAMA_MODEL,
+    ollama_url=OLLAMA_URL,
 )
 
 
 def fetch_historical_data(symbol):
     for symbol in SYMBOL_LIST:
         log.info(f"Fetching historical data for {symbol}...")
-        csv_path = f"src/backtest/{symbol}_1h.csv"
+        csv_path = f"data/{symbol}_5m.csv"
         if os.path.exists(csv_path):
             df_1h = pd.read_csv(csv_path)
             candlestick_list = [
                 FuturesCandlestick(
-                    t=int(row["t"]),
+                    t=int(pd.to_datetime(row["t"], utc=True).timestamp()),
                     o=float(row["o"]),
                     h=float(row["h"]),
                     l=float(row["l"]),
@@ -76,7 +80,7 @@ def fetch_historical_data(symbol):
 
 
 def fetch_and_process_test_data():
-    csv_1m_path = "src/backtest/1m.csv"
+    csv_1m_path = "data/1m.csv"
     if not os.path.exists(csv_1m_path):
         log.info("1-minute CSV file not found. Skipping...")
         return
