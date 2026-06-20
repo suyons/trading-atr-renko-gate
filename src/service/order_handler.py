@@ -1,8 +1,4 @@
-from gate_api import FuturesApi, FuturesOrder, UnifiedApi
-from gate_api.models.contract import Contract
-from gate_api.models.unified_account import UnifiedAccount
-from gate_api.models.position import Position
-
+from exchange.base import Exchange
 from config.logger_config import log
 from service.discord_client import DiscordClient
 
@@ -10,14 +6,12 @@ from service.discord_client import DiscordClient
 class OrderHandler:
     def __init__(
         self,
-        gate_futures_api: FuturesApi,
-        gate_unified_api: UnifiedApi,
+        exchange: Exchange,
         discord_client: DiscordClient,
         symbol_list: list[str],
         leverage: int,
     ):
-        self.gate_futures_api = gate_futures_api
-        self.gate_unified_api = gate_unified_api
+        self.exchange = exchange
         self.discord_client = discord_client
         self.symbol_list = symbol_list
         self.leverage = leverage
@@ -47,10 +41,7 @@ class OrderHandler:
 
     def set_account_total_balance(self):
         try:
-            unified_account: UnifiedAccount = (
-                self.gate_unified_api.list_unified_accounts()
-            )
-            self.account_total_balance = float(unified_account.unified_account_total)
+            self.account_total_balance = self.exchange.get_total_balance()
         except Exception as e:
             log.error(f"[Order] Failed to get account balance: {e}")
             raise e
@@ -58,9 +49,7 @@ class OrderHandler:
     def set_symbol_data_to_position_list(self):
         for symbol in self.symbol_list:
             try:
-                contract_info: Contract = self.gate_futures_api.get_futures_contract(
-                    settle="usdt", contract=symbol
-                )
+                info = self.exchange.get_contract(symbol)
 
                 # Find existing entry for the symbol
                 existing = next(
@@ -73,12 +62,9 @@ class OrderHandler:
                 )
                 symbol_data = {
                     "symbol": symbol,
-                    "last_price": float(contract_info.last_price),
-                    "minimum_position_size_in_quantity": float(
-                        contract_info.quanto_multiplier
-                    ),
-                    "minimum_position_size_in_usdt": float(contract_info.last_price)
-                    * float(contract_info.quanto_multiplier),
+                    "last_price": info.last_price,
+                    "minimum_position_size_in_quantity": info.unit_size,
+                    "minimum_position_size_in_usdt": info.last_price * info.unit_size,
                 }
                 if existing:
                     existing.update(symbol_data)
@@ -89,23 +75,17 @@ class OrderHandler:
                 raise e
 
     def set_account_data_to_position_list(self):
-        current_position_list: list[Position] = self.gate_futures_api.list_positions(
-            settle="usdt", holding=True
-        )
+        current_position_list = self.exchange.list_positions()
         for symbol_data in self.symbol_position_list:
             symbol = symbol_data["symbol"]
             try:
                 current_position = next(
-                    (
-                        p
-                        for p in current_position_list
-                        if getattr(p, "contract", None) == symbol
-                    ),
+                    (p for p in current_position_list if p.contract == symbol),
                     None,
                 )
                 current_position_size = current_position.size if current_position else 0
                 unrealised_pnl = (
-                    float(current_position.unrealised_pnl) if current_position else 0.0
+                    current_position.unrealised_pnl if current_position else 0.0
                 )
 
                 symbol_data.update(
@@ -164,19 +144,10 @@ class OrderHandler:
             order_size_in_usdt = abs(order_size_in_usdt)
         else:
             raise ValueError(f"Invalid side: {side}. Must be 'buy' or 'sell'.")
-        futures_order = FuturesOrder(
-            contract=symbol,
-            size=order_size_in_quantity,
-            price="0",
-            tif="ioc",
-        )
         try:
-            order_response: FuturesOrder = self.gate_futures_api.create_futures_order(
-                settle="usdt",
-                futures_order=futures_order,
-            )
+            fill_price = self.exchange.create_market_order(symbol, order_size_in_quantity)
             self.discord_client.push_log_buffer(
-                f"[Order] Open {side} {symbol}, price: {order_response.fill_price}, size: {order_size_in_usdt:.2f}, balance: {self.account_total_balance:.2f}",
+                f"[Order] Open {side} {symbol}, price: {fill_price}, size: {order_size_in_usdt:.2f}, balance: {self.account_total_balance:.2f}",
                 "info",
             )
         except Exception as e:
@@ -186,18 +157,8 @@ class OrderHandler:
             self.discord_client.flush_log_buffer()
 
     def place_market_close_order(self, symbol: str):
-        futures_order = FuturesOrder(
-            contract=symbol,
-            size=0,
-            close=True,
-            price="0",
-            tif="ioc",
-        )
         try:
-            order_response: FuturesOrder = self.gate_futures_api.create_futures_order(
-                settle="usdt",
-                futures_order=futures_order,
-            )
+            fill_price = self.exchange.create_market_order(symbol, 0, close=True)
             self.set_account_total_balance()
             symbol_position = next(
                 (
@@ -208,7 +169,7 @@ class OrderHandler:
                 None,
             )
             self.discord_client.push_log_buffer(
-                f"[Order] Closed {symbol_position.get('current_position_side')} {symbol}, price: {order_response.fill_price}, size: {symbol_position.get('current_position_size_in_usdt'):.2f}, balance: {self.account_total_balance:.2f}, PnL: {symbol_position.get('unrealised_pnl'):.2f}",
+                f"[Order] Closed {symbol_position.get('current_position_side')} {symbol}, price: {fill_price}, size: {symbol_position.get('current_position_size_in_usdt'):.2f}, balance: {self.account_total_balance:.2f}, PnL: {symbol_position.get('unrealised_pnl'):.2f}",
                 "info",
             )
             self.set_account_data_to_position_list()

@@ -1,0 +1,18 @@
+[project]
+name = "trading-atr-renko-gate"
+version = "0.1.0"
+description = "ATR-Renko crypto-futures trading bot (Gate + Binance testnet), Claude-filtered."
+requires-python = ">=3.10"
+dependencies = [
+    "gate-api",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "python-dotenv",
+    "requests",
+    "schedule",
+    "ta-lib",
+]
+
+[tool.uv]
+package = false

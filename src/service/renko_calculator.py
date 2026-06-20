@@ -4,12 +4,11 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 import talib
-import requests
 
-from gate_api.models.futures_candlestick import FuturesCandlestick
-from gate_api.models.futures_ticker import FuturesTicker
+from exchange.base import OHLCV, Ticker
 from backtest.simulated_order_handler import SimulatedOrderHandler
 from config.logger_config import log
+from service import signal_filter
 from service.discord_client import DiscordClient
 from service.order_handler import OrderHandler
 
@@ -27,8 +26,6 @@ class RenkoCalculator:
         ohlcv_count: int,
         discord_client: DiscordClient,
         order_handler: OrderHandler | SimulatedOrderHandler,
-        ollama_model: str = None,
-        ollama_url: str = None,
     ):
         self.symbol_data_list = []
         self.symbol_list = symbol_list
@@ -37,11 +34,9 @@ class RenkoCalculator:
         self.ohlcv_count = ohlcv_count
         self.discord_client = discord_client
         self.order_handler = order_handler
-        self.ollama_model = ollama_model
-        self.ollama_url = ollama_url
 
     def set_ohlcv_list_into_symbol_data_list(
-        self, symbol: str, candlestick_list: list[FuturesCandlestick]
+        self, symbol: str, candlestick_list: list[OHLCV]
     ):
         """
         Adds new OHLCV bars (list of dicts) to the history and recalculates ATR.
@@ -192,10 +187,8 @@ class RenkoCalculator:
             direction = renko_bricks[-1]["direction"]
             side = "buy" if direction == "up" else "sell"
 
-            # Call Ollama for signal filtering
-            if self._call_ollama_for_signal_filtering(
-                symbol_data.get("symbol"), renko_bricks
-            ):
+            # Optional LLM veto on the reversal
+            if self._should_skip_reversal(symbol_data.get("symbol"), side, renko_bricks):
                 log.info(
                     f"[Renko] Skipping order for {symbol_data.get('symbol')} due to potential false signal from sideways movement (historical context)."
                 )
@@ -207,7 +200,7 @@ class RenkoCalculator:
                 renko_bricks = renko_bricks[-200:]
             symbol_data["renko_list"] = renko_bricks
 
-    def handle_new_ticker_data(self, ticker_data_list: list[FuturesTicker]):
+    def handle_new_ticker_data(self, ticker_data_list: list[Ticker]):
         """
         Processes new incoming ticker data, updates renko_list in self.symbol_data_list.
         Only processes symbols present in self.symbol_data_list.
@@ -218,7 +211,7 @@ class RenkoCalculator:
         if (
             not ticker_data_list
             or not isinstance(ticker_data_list, list)
-            or not isinstance(ticker_data_list[0], FuturesTicker)
+            or not isinstance(ticker_data_list[0], Ticker)
         ):
             # If ticker_data_list is empty or not a list
             log.warning("[Renko] Invalid ticker_data_list format.")
@@ -313,8 +306,8 @@ class RenkoCalculator:
                     ):
                         side = "buy" if direction == "up" else "sell"
 
-                        # Call Ollama for signal filtering
-                        if self._call_ollama_for_signal_filtering(symbol, renko_bricks):
+                        # Optional LLM veto on the reversal
+                        if self._should_skip_reversal(symbol, side, renko_bricks):
                             log.info(
                                 f"[Renko] Skipping order for {symbol} due to potential false signal from sideways movement."
                             )
@@ -340,95 +333,25 @@ class RenkoCalculator:
         if self.order_handler and hasattr(self.order_handler, "update_unrealised_pnl"):
             self.order_handler.update_unrealised_pnl()
 
-    def _call_ollama_for_signal_filtering(
-        self, symbol: str, renko_bricks: list
+    def _should_skip_reversal(
+        self, symbol: str, side: str, renko_bricks: list
     ) -> bool:
         """
-        Calls the local Ollama instance to filter out false signals based on Renko brick patterns.
-        Returns True if the signal should be filtered (i.e., it's a false signal from sideways movement), False otherwise.
+        Ask the optional LLM filter whether this brick reversal is a false signal
+        from sideways chop. Returns True if the order should be skipped.
         """
-        if not self.ollama_model:
-            return False
-
-        # Get the last few bricks to analyze the trend
-        # We need at least 3 bricks to determine a pattern (last two for direction, and one before for context)
-        if len(renko_bricks) < 3:
-            return False
-
-        # Take the last 5 bricks for analysis
-        recent_bricks = renko_bricks[-5:]
-
-        # Format the recent bricks into a string for the LLM
-        brick_data_str = "\n".join(
-            [
-                f"Brick {i+1}: Open={b['open']:.4f}, Close={b['close']:.4f}, Direction={b['direction']}"
-                for i, b in enumerate(recent_bricks)
-            ]
-        )
-
-        current_balance = self.order_handler.account_total_balance
+        balance = getattr(self.order_handler, "account_total_balance", 0.0)
         unrealised_pnl = 0.0
-        for position_data in self.order_handler.symbol_position_list:
+        for position_data in getattr(self.order_handler, "symbol_position_list", []):
             if position_data.get("symbol") == symbol:
                 unrealised_pnl = position_data.get("unrealised_pnl", 0.0)
                 break
-
-        prompt = f"""
-        Analyze the following Renko brick sequence for {symbol}.
-        Current Account Balance: {current_balance:.2f} USDT
-        Unrealised PnL for {symbol}: {unrealised_pnl:.2f} USDT
-        Each brick indicates price movement. 'up' means price increased by brick size, 'down' means price decreased.
-        
-        {brick_data_str}
-
-        Based on this sequence, is the most recent brick's signal likely a "false signal" caused by sideways market movement?
-        A false signal due to sideways movement typically involves many alternating up and down bricks within a short period, 
-        without a clear sustained trend in one direction.
-
-        Respond with only "True" if the signal is credible and an order should be opened. Respond with only "False" if it's a false signal and the order should NOT be opened.
-        """
-
-        log.info(f"[Renko] Sending Prompt:\n\n{prompt}\n")
-        try:
-            response = requests.post(
-                self.ollama_url,
-                json={
-                    "model": self.ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                },
-                timeout=30,  # 10 seconds timeout
-            )
-            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-            result = response.json()
-            # Assuming the LLM's response is directly in the 'response' field and can be parsed as a boolean string
-            llm_decision = result.get("response", "").strip().lower()
-            log.info(f"[Renko] Ollama Response for {symbol}: {llm_decision}")
-            if (
-                "false" in llm_decision
-            ):  # If Ollama says "false", it's a false signal, so skip order
-                log.info(
-                    f"[Renko] Ollama filtered a potential false signal for {symbol}."
-                )
-                return True
-            elif (
-                "true" in llm_decision
-            ):  # If Ollama says "true", it's a credible signal, so proceed with order
-                return False
-            else:
-                log.warning(
-                    f"[Renko] Ollama returned unparseable response for {symbol}: {llm_decision}"
-                )
-                return False
-
-        except requests.exceptions.RequestException as e:
-            log.error(f"[Renko] Error calling Ollama for {symbol}: {e}")
-            return False
-        except Exception as e:
-            log.error(
-                f"[Renko] Unexpected error parsing Ollama response for {symbol}: {e}"
-            )
-            return False
+        skip = signal_filter.should_skip(
+            symbol, side, balance, unrealised_pnl, renko_bricks[-5:]
+        )
+        if skip:
+            log.info(f"[Renko] Filter vetoed a potential false signal for {symbol}.")
+        return skip
 
     def send_renko_plot_to_discord(self, symbol: str):
         if not self.discord_client:

@@ -1,35 +1,29 @@
 import os
 from dotenv import load_dotenv
-from gate_api import Configuration, ApiClient, FuturesApi
-from gate_api.models.futures_candlestick import FuturesCandlestick
-from gate_api.models.futures_ticker import FuturesTicker
+import pandas as pd
 
+from exchange import create_exchange
+from exchange.base import OHLCV, Ticker
 from backtest.simulated_order_handler import SimulatedOrderHandler
 from config.logger_config import log
 from service.renko_calculator import RenkoCalculator
-import pandas as pd
 
 load_dotenv()
 
 
-GATE_URL_HOST_LIVE = os.getenv("GATE_URL_HOST_LIVE")
 SYMBOL_LIST = os.getenv("SYMBOL_LIST").split(",")
 OHLCV_TIMEFRAME = os.getenv("OHLCV_TIMEFRAME")
 ATR_PERIOD = int(os.getenv("ATR_PERIOD"))
 OHLCV_COUNT = int(os.getenv("OHLCV_COUNT"))
 LEVERAGE = int(os.getenv("LEVERAGE"))
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL")
-OLLAMA_URL = os.getenv("OLLAMA_URL")
 
 
 log.info("Starting backtest...")
 
-gate_configuration = Configuration(host=GATE_URL_HOST_LIVE)
-gate_client = ApiClient(configuration=gate_configuration)
-gate_futures_api = FuturesApi(api_client=gate_client)
+exchange = create_exchange(symbol_list=SYMBOL_LIST)
 
 simulated_order_handler = SimulatedOrderHandler(
-    gate_futures_api=gate_futures_api,
+    exchange=exchange,
     symbol_list=SYMBOL_LIST,
     leverage=LEVERAGE,
 )
@@ -41,8 +35,6 @@ renko_calculator = RenkoCalculator(
     ohlcv_count=OHLCV_COUNT,
     discord_client=None,
     order_handler=simulated_order_handler,
-    ollama_model=OLLAMA_MODEL,
-    ollama_url=OLLAMA_URL,
 )
 
 
@@ -53,7 +45,7 @@ def fetch_historical_data(symbol):
         if os.path.exists(csv_path):
             df_1h = pd.read_csv(csv_path)
             candlestick_list = [
-                FuturesCandlestick(
+                OHLCV(
                     t=int(pd.to_datetime(row["t"], utc=True).timestamp()),
                     o=float(row["o"]),
                     h=float(row["h"]),
@@ -94,10 +86,7 @@ def fetch_and_process_test_data():
             if df_symbol.empty:
                 continue
             row = df_symbol.iloc[0]
-            ticker_data = FuturesTicker(
-                contract=symbol,
-                last=float(row["c"]),
-            )
+            ticker_data = Ticker(contract=symbol, last=float(row["c"]))
             simulated_order_handler.set_symbol_position_list_last_price(
                 symbol=symbol, last_price=ticker_data.last
             )

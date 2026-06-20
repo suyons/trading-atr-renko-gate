@@ -1,17 +1,15 @@
-from gate_api import FuturesApi
-from gate_api.models.contract import Contract
-
+from exchange.base import Exchange
 from config.logger_config import log
 
 
 class SimulatedOrderHandler:
     def __init__(
         self,
-        gate_futures_api: FuturesApi,
+        exchange: Exchange,
         symbol_list: list[str],
         leverage: int,
     ):
-        self.gate_futures_api = gate_futures_api
+        self.exchange = exchange
         self.symbol_list = symbol_list
         self.leverage = leverage
         self.account_total_balance = 1000.0
@@ -55,9 +53,7 @@ class SimulatedOrderHandler:
     def set_symbol_data_to_position_list(self):
         for symbol in self.symbol_list:
             try:
-                contract_info: Contract = self.gate_futures_api.get_futures_contract(
-                    settle="usdt", contract=symbol
-                )
+                info = self.exchange.get_contract(symbol)
 
                 # Find existing entry for the symbol
                 existing = next(
@@ -68,10 +64,8 @@ class SimulatedOrderHandler:
                     ),
                     None,
                 )
-                last_price = float(contract_info.last_price)
-                minimum_position_size_in_usdt = last_price * float(
-                    contract_info.quanto_multiplier
-                )
+                last_price = info.last_price
+                minimum_position_size_in_usdt = last_price * info.unit_size
                 order_size_in_quantity = int(
                     self.account_total_balance
                     * self.leverage
@@ -82,9 +76,7 @@ class SimulatedOrderHandler:
                 new_symbol_data = {
                     "symbol": symbol,
                     "last_price": last_price,
-                    "minimum_position_size_in_quantity": float(
-                        contract_info.quanto_multiplier
-                    ),
+                    "minimum_position_size_in_quantity": info.unit_size,
                     "minimum_position_size_in_usdt": minimum_position_size_in_usdt,
                     "order_size_in_quantity": order_size_in_quantity,
                     "order_size_in_usdt": (

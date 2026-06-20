@@ -1,5 +1,0 @@
-gate_api
-matplotlib
-numpy
-python-dotenv
-talib

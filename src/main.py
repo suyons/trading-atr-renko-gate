@@ -3,11 +3,9 @@ import time
 import schedule
 
 from dotenv import load_dotenv
-from gate_api import Configuration, ApiClient, FuturesApi, UnifiedApi
-from gate_api.models.futures_candlestick import FuturesCandlestick
-from gate_api.models.futures_ticker import FuturesTicker
 
 from config.logger_config import log
+from exchange import create_exchange
 from service.discord_client import DiscordClient
 from service.order_handler import OrderHandler
 from service.renko_calculator import RenkoCalculator
@@ -15,20 +13,9 @@ from service.renko_calculator import RenkoCalculator
 # Load environment variables from .env file
 load_dotenv()
 
-TRADING_MODE = os.getenv("GATE_TRADING_MODE").upper()
-GATE_URL_HOST = (
-    os.getenv("GATE_URL_HOST_LIVE")
-    if TRADING_MODE == "LIVE"
-    else os.getenv("GATE_URL_HOST_TEST")
-)
-API_KEY = (
-    os.getenv("API_KEY_LIVE") if TRADING_MODE == "LIVE" else os.getenv("API_KEY_TEST")
-)
-API_SECRET = (
-    os.getenv("API_SECRET_LIVE")
-    if TRADING_MODE == "LIVE"
-    else os.getenv("API_SECRET_TEST")
-)
+TRADING_MODE = (
+    os.getenv("TRADING_MODE") or os.getenv("GATE_TRADING_MODE") or "TEST"
+).upper()
 DISCORD_WEBHOOK_URL = (
     os.getenv("DISCORD_WEBHOOK_URL_LIVE")
     if TRADING_MODE == "LIVE"
@@ -43,18 +30,10 @@ LEVERAGE = int(os.getenv("LEVERAGE"))
 
 
 # Dependencies initialization
-gate_configuration = Configuration(
-    host=GATE_URL_HOST,
-    key=API_KEY,
-    secret=API_SECRET,
-)
-gate_client = ApiClient(configuration=gate_configuration)
-gate_futures_api = FuturesApi(api_client=gate_client)
-gate_unified_api = UnifiedApi(api_client=gate_client)
+exchange = create_exchange(symbol_list=SYMBOL_LIST)
 discord_client = DiscordClient(url=DISCORD_WEBHOOK_URL)
 order_handler = OrderHandler(
-    gate_futures_api=gate_futures_api,
-    gate_unified_api=gate_unified_api,
+    exchange=exchange,
     discord_client=discord_client,
     symbol_list=SYMBOL_LIST,
     leverage=LEVERAGE,
@@ -72,13 +51,8 @@ renko_calculator = RenkoCalculator(
 def initialize_historical_data():
     discord_client.push_log_buffer("[Main] Renko trader started")
     for symbol in SYMBOL_LIST:
-        candlestick_list: list[FuturesCandlestick] = (
-            gate_futures_api.list_futures_candlesticks(
-                settle="usdt",
-                contract=symbol,
-                limit=OHLCV_COUNT,
-                interval=OHLCV_TIMEFRAME,
-            )
+        candlestick_list = exchange.get_candlesticks(
+            symbol=symbol, timeframe=OHLCV_TIMEFRAME, count=OHLCV_COUNT
         )
         renko_calculator.set_ohlcv_list_into_symbol_data_list(
             symbol=symbol, candlestick_list=candlestick_list
@@ -95,9 +69,7 @@ def initialize_historical_data():
 
 def fetch_then_process_ticker_data():
     try:
-        ticker_data_list: FuturesTicker = gate_futures_api.list_futures_tickers(
-            settle="usdt"
-        )
+        ticker_data_list = exchange.get_all_tickers()
         renko_calculator.handle_new_ticker_data(ticker_data_list)
     except Exception as e:
         log.error(f"[Main] Error fetching ticker data: {e}")
